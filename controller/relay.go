@@ -62,8 +62,29 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
-func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+func relayToChannel(c *gin.Context, relayInfo *relaycommon.RelayInfo, channel *model.Channel) *types.NewAPIError {
+	requestBody, _ := common.GetRequestBody(c)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
+	var newAPIError *types.NewAPIError
+	switch relayInfo.RelayFormat {
+	case types.RelayFormatOpenAIRealtime:
+		newAPIError = relay.WssHelper(c, relayInfo)
+	case types.RelayFormatClaude:
+		newAPIError = relay.ClaudeHelper(c, relayInfo)
+	case types.RelayFormatGemini:
+		newAPIError = geminiRelayHandler(c, relayInfo)
+	default:
+		newAPIError = relayHandler(c, relayInfo)
+	}
+
+	if newAPIError != nil {
+		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+	}
+	return newAPIError
+}
+
+func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
@@ -199,16 +220,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
-		switch relayFormat {
-		case types.RelayFormatOpenAIRealtime:
-			newAPIError = relay.WssHelper(c, relayInfo)
-		case types.RelayFormatClaude:
-			newAPIError = relay.ClaudeHelper(c, relayInfo)
-		case types.RelayFormatGemini:
-			newAPIError = geminiRelayHandler(c, relayInfo)
-		default:
-			newAPIError = relayHandler(c, relayInfo)
-		}
+		newAPIError = relayToChannel(c, relayInfo, channel)
 
 		if newAPIError == nil {
 			return
@@ -300,9 +312,28 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return channel, nil
 }
 
+// isInappropriateError 检测错误是否包含 inappropriate 字样
+// 此类错误需要强制渠道间重试，不重试同一渠道的多个密钥
+func isInappropriateError(openaiErr *types.NewAPIError) bool {
+	if openaiErr == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(openaiErr.Error()), "inappropriate")
+}
+
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
 	if openaiErr == nil {
 		return false
+	}
+	if strings.Contains(openaiErr.Error(), "no response received") {
+		return false
+	}
+	if strings.Contains(openaiErr.Error(), "no candidates reMeoWturned") {
+		return false
+	}
+	// inappropriate 错误强制渠道间重试
+	if isInappropriateError(openaiErr) {
+		return true
 	}
 	if types.IsChannelError(openaiErr) {
 		return true
@@ -348,7 +379,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(channelError.ChannelType, err) && channelError.AutoBan {
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.Error())
+			reason := err.Error()
+			if err.GetErrorType() == "insufficient_quota" {
+				reason = "insufficient_quota: " + reason
+			}
+			service.DisableChannel(channelError, reason)
 		})
 	}
 
