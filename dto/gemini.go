@@ -18,8 +18,26 @@ type GeminiChatRequest struct {
 	GenerationConfig   GeminiChatGenerationConfig `json:"generationConfig,omitempty"`
 	Tools              json.RawMessage            `json:"tools,omitempty"`
 	ToolConfig         *ToolConfig                `json:"toolConfig,omitempty"`
-	SystemInstruction  *GeminiChatContent         `json:"system_instruction,omitempty"`
+	SystemInstruction  *GeminiChatContent         `json:"systemInstruction,omitempty"`
 	CachedContent      string                     `json:"cachedContent,omitempty"`
+}
+
+func (r *GeminiChatRequest) UnmarshalJSON(data []byte) error {
+	type Alias GeminiChatRequest
+	aux := &struct {
+		SystemInstructionSnake *GeminiChatContent `json:"system_instruction,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	// If systemInstruction (camelCase) is not set but system_instruction (snake_case) is, use the snake_case version
+	if r.SystemInstruction == nil && aux.SystemInstructionSnake != nil {
+		r.SystemInstruction = aux.SystemInstructionSnake
+	}
+	return nil
 }
 
 type ToolConfig struct {
