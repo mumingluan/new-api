@@ -188,6 +188,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
 
+	// 检查流式响应是否收到有效内容，如果没有则返回错误以触发重试
+	if len(streamItems) == 0 {
+		return nil, types.NewOpenAIError(fmt.Errorf("empty response from upstream API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	}
+
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
@@ -229,6 +234,12 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	// 检查是否有有效的 choices 返回，如果没有则返回错误以触发重试
+	if len(simpleResponse.Choices) == 0 {
+		return nil, types.NewOpenAIError(fmt.Errorf("empty response from upstream API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	}
+
+	// 记录 content_filter 拒绝原因（上游功能）
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")

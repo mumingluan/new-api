@@ -707,6 +707,7 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
+	// 记录拒绝原因（上游功能）
 	if claudeResponse.StopReason != "" {
 		maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
 	}
@@ -777,16 +778,23 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		ResponseText: strings.Builder{},
 		Usage:        &dto.Usage{},
 	}
-	var err *types.NewAPIError
+	var streamErr *types.NewAPIError
+	var hasValidResponse bool
 	helper.StreamScannerHandler(c, resp, info, func(data string) bool {
-		err = HandleStreamResponseData(c, info, claudeInfo, data)
-		if err != nil {
+		streamErr = HandleStreamResponseData(c, info, claudeInfo, data)
+		if streamErr != nil {
 			return false
 		}
+		hasValidResponse = true
 		return true
 	})
-	if err != nil {
-		return nil, err
+	if streamErr != nil {
+		return nil, streamErr
+	}
+
+	// 检查流式响应是否收到有效内容，如果没有则返回错误以触发重试
+	if !hasValidResponse {
+		return nil, types.NewOpenAIError(fmt.Errorf("empty response from Claude API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 
 	HandleStreamFinalResponse(c, info, claudeInfo)
@@ -802,6 +810,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
+	// 记录拒绝原因（上游功能）
 	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
 	if claudeInfo.Usage == nil {
 		claudeInfo.Usage = &dto.Usage{}
