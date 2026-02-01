@@ -62,15 +62,17 @@ func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, max
 	// 如果在时间窗口内已达到限制，拒绝请求
 	subTime := nowTime.Sub(oldTime).Seconds()
 	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+		rdb.Expire(ctx, key, time.Duration(duration)*time.Second)
 		return false, nil
 	}
 
+	// 超过时间窗口，清空旧数据，允许新的时间窗口开始
+	rdb.Del(ctx, key)
 	return true, nil
 }
 
 // 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
+func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) {
 	// 如果maxCount为0，不记录请求
 	if maxCount == 0 {
 		return
@@ -79,7 +81,7 @@ func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxC
 	now := time.Now().Format(timeFormat)
 	rdb.LPush(ctx, key, now)
 	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	rdb.Expire(ctx, key, time.Duration(duration)*time.Second)
 }
 
 // Redis限流处理器
@@ -123,6 +125,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 			if !allowed {
 				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
+				return
 			}
 		}
 
@@ -131,7 +134,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		// 5. 如果请求成功，记录成功请求
 		if c.Writer.Status() < 400 {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+			recordRedisRequest(ctx, rdb, successKey, successMaxCount, duration)
 		}
 	}
 }
@@ -152,10 +155,8 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 			return
 		}
 
-		// 2. 检查成功请求数限制
-		// 使用一个临时key来检查限制，这样可以避免实际记录
-		checkKey := successKey + "_check"
-		if !inMemoryRateLimiter.Request(checkKey, successMaxCount, duration) {
+		// 2. 检查成功请求数限制（只检查不记录，使用 Check 方法）
+		if successMaxCount > 0 && !inMemoryRateLimiter.Check(successKey, successMaxCount, duration) {
 			c.Status(http.StatusTooManyRequests)
 			c.Abort()
 			return
@@ -270,10 +271,9 @@ func checkTokenRateLimitMemory(c *gin.Context, rateLimitKey string, totalMaxCoun
 		return false
 	}
 
-	// 2. 检查成功请求数限制（使用临时key检查）
+	// 2. 检查成功请求数限制（只检查不记录）
 	if successMaxCount > 0 {
-		checkKey := successKey + "_check"
-		if !inMemoryRateLimiter.Request(checkKey, successMaxCount, duration) {
+		if !inMemoryRateLimiter.Check(successKey, successMaxCount, duration) {
 			abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到密钥请求数限制：%d分钟内最多请求%d次", setting.TokenRateLimitDurationMinutes, successMaxCount))
 			return false
 		}
@@ -312,7 +312,8 @@ func recordTokenRateLimitSuccess(c *gin.Context) {
 		ctx := context.Background()
 		rdb := common.RDB
 		successKey := fmt.Sprintf("rateLimit:%s:%s", TokenRateLimitSuccessCountMark, rateLimitKey)
-		recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+		duration := int64(setting.TokenRateLimitDurationMinutes * 60)
+		recordRedisRequest(ctx, rdb, successKey, successMaxCount, duration)
 	} else {
 		duration := int64(setting.TokenRateLimitDurationMinutes * 60)
 		successKey := TokenRateLimitSuccessCountMark + rateLimitKey
@@ -419,10 +420,9 @@ func checkTokenDailyRateLimitMemory(c *gin.Context, rateLimitKey string, totalMa
 		return false
 	}
 
-	// 2. 检查成功请求数限制（使用临时key检查）
+	// 2. 检查成功请求数限制（只检查不记录）
 	if successMaxCount > 0 {
-		checkKey := successKey + "_check"
-		if !inMemoryRateLimiter.Request(checkKey, successMaxCount, duration) {
+		if !inMemoryRateLimiter.Check(successKey, successMaxCount, duration) {
 			abortWithOpenAiMessage(c, http.StatusTooManyRequests, "您已达到每日请求数限制")
 			return false
 		}
@@ -461,7 +461,8 @@ func recordTokenDailySuccess(c *gin.Context) {
 		ctx := context.Background()
 		rdb := common.RDB
 		successKey := fmt.Sprintf("rateLimit:%s:%s", TokenDailyRateLimitSuccessCountMark, rateLimitKey)
-		recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+		duration := int64(86400)
+		recordRedisRequest(ctx, rdb, successKey, successMaxCount, duration)
 	} else {
 		duration := int64(86400)
 		successKey := TokenDailyRateLimitSuccessCountMark + rateLimitKey

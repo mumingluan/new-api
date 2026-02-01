@@ -68,3 +68,22 @@ func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration in
 	}
 	return true
 }
+
+// Check 只检查是否达到限制，不记录请求（用于成功请求数限制的预检查）
+func (l *InMemoryRateLimiter) Check(key string, maxRequestNum int, duration int64) bool {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	queue, ok := l.store[key]
+	if !ok {
+		return true // 没有记录，允许
+	}
+	now := time.Now().Unix()
+	if len(*queue) < maxRequestNum {
+		return true // 未达到限制
+	}
+	// 检查最老的记录是否已过期
+	if now-(*queue)[0] >= duration {
+		return true // 时间窗口已过，允许
+	}
+	return false // 在时间窗口内已达到限制
+}
