@@ -741,6 +741,24 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		if err != nil {
 			logger.LogError(c, "send_stream_response_failed: "+err.Error())
 		}
+	} else if info.RelayFormat == types.RelayFormatGemini {
+		response := StreamResponseClaude2OpenAI(&claudeResponse)
+
+		if !FormatClaudeResponseInfo(&claudeResponse, response, claudeInfo) {
+			return nil
+		}
+
+		geminiResponse := service.StreamResponseOpenAI2Gemini(response, info)
+		if geminiResponse == nil {
+			return nil
+		}
+		geminiResponseStr, marshalErr := common.Marshal(geminiResponse)
+		if marshalErr != nil {
+			logger.LogError(c, "marshal gemini stream response failed: "+marshalErr.Error())
+			return nil
+		}
+		c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
+		_ = helper.FlushWriter(c)
 	}
 	return nil
 }
@@ -767,6 +785,18 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 			}
 		}
 		helper.Done(c)
+	} else if info.RelayFormat == types.RelayFormatGemini {
+		response := helper.GenerateFinalUsageResponse(claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, *claudeInfo.Usage)
+		geminiResponse := service.StreamResponseOpenAI2Gemini(response, info)
+		if geminiResponse != nil {
+			geminiResponseStr, err := common.Marshal(geminiResponse)
+			if err != nil {
+				common.SysLog("marshal gemini final response failed: " + err.Error())
+				return
+			}
+			c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
+			_ = helper.FlushWriter(c)
+		}
 	}
 }
 
@@ -812,6 +842,10 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	}
 	// 记录拒绝原因（上游功能）
 	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
+	// 检查是否有有效的内容返回，如果没有则返回错误以触发重试
+	if len(claudeResponse.Content) == 0 && claudeResponse.Completion == "" {
+		return types.NewOpenAIError(fmt.Errorf("empty response from Claude API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	}
 	if claudeInfo.Usage == nil {
 		claudeInfo.Usage = &dto.Usage{}
 	}
@@ -830,6 +864,14 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		openaiResponse := ResponseClaude2OpenAI(&claudeResponse)
 		openaiResponse.Usage = *claudeInfo.Usage
 		responseData, err = json.Marshal(openaiResponse)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+	case types.RelayFormatGemini:
+		openaiResponse := ResponseClaude2OpenAI(&claudeResponse)
+		openaiResponse.Usage = *claudeInfo.Usage
+		geminiResponse := service.ResponseOpenAI2Gemini(openaiResponse, info)
+		responseData, err = common.Marshal(geminiResponse)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
