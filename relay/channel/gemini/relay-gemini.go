@@ -1355,6 +1355,11 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	nextToolCallIndexByChoice := make(map[int]int)
 
 	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+		// 跳过空的 Candidates 响应
+		if len(geminiResponse.Candidates) == 0 {
+			return true
+		}
+
 		response, isStop := streamResponseGeminiChat2OpenAI(geminiResponse)
 
 		response.Id = id
@@ -1430,7 +1435,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	}
 
 	// 检查是否为空响应（上游超时或返回空内容）
-	if usage.CompletionTokens <= 0 {
+	if usage.TotalTokens == 0 {
 		return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 

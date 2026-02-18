@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -12,13 +14,21 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 )
 
-func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) (string, error) {
+// geminiVideoResult holds either a remote URL or inline base64 video data.
+type geminiVideoResult struct {
+	URL      string // remote video URL (preferred if available)
+	Data     []byte // decoded video bytes from bytesBase64Encoded
+	MimeType string // e.g. "video/mp4"
+}
+
+func getGeminiVideoResult(channel *model.Channel, task *model.Task, apiKey string) (*geminiVideoResult, error) {
 	if channel == nil || task == nil {
-		return "", fmt.Errorf("invalid channel or task")
+		return nil, fmt.Errorf("invalid channel or task")
 	}
 
+	// Try extracting URL from stored task data first
 	if url := extractGeminiVideoURLFromTaskData(task); url != "" {
-		return ensureAPIKey(url, apiKey), nil
+		return &geminiVideoResult{URL: ensureAPIKey(url, apiKey)}, nil
 	}
 
 	baseURL := constant.ChannelBaseURLs[channel.Type]
@@ -28,11 +38,11 @@ func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) 
 
 	adaptor := relay.GetTaskAdaptor(constant.TaskPlatform(strconv.Itoa(channel.Type)))
 	if adaptor == nil {
-		return "", fmt.Errorf("gemini task adaptor not found")
+		return nil, fmt.Errorf("gemini task adaptor not found")
 	}
 
 	if apiKey == "" {
-		return "", fmt.Errorf("api key not available for task")
+		return nil, fmt.Errorf("api key not available for task")
 	}
 
 	proxy := channel.GetSetting().Proxy
@@ -41,29 +51,77 @@ func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) 
 		"action":  task.Action,
 	}, proxy)
 	if err != nil {
-		return "", fmt.Errorf("fetch task failed: %w", err)
+		return nil, fmt.Errorf("fetch task failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read task response failed: %w", err)
+		return nil, fmt.Errorf("read task response failed: %w", err)
 	}
 
+	// Try remote URL from parsed result
 	taskInfo, parseErr := adaptor.ParseTaskResult(body)
 	if parseErr == nil && taskInfo != nil && taskInfo.RemoteUrl != "" {
-		return ensureAPIKey(taskInfo.RemoteUrl, apiKey), nil
+		return &geminiVideoResult{URL: ensureAPIKey(taskInfo.RemoteUrl, apiKey)}, nil
 	}
 
+	// Try remote URL from raw payload
 	if url := extractGeminiVideoURLFromPayload(body); url != "" {
-		return ensureAPIKey(url, apiKey), nil
+		return &geminiVideoResult{URL: ensureAPIKey(url, apiKey)}, nil
+	}
+
+	// Try inline base64 video data (Veo returns bytesBase64Encoded directly)
+	if result := extractGeminiVideoBase64FromPayload(body); result != nil {
+		return result, nil
 	}
 
 	if parseErr != nil {
-		return "", fmt.Errorf("parse task result failed: %w", parseErr)
+		return nil, fmt.Errorf("parse task result failed: %w", parseErr)
 	}
 
-	return "", fmt.Errorf("gemini video url not found")
+	return nil, fmt.Errorf("gemini video data not found")
+}
+
+// extractGeminiVideoBase64FromPayload extracts inline base64 video from fetchPredictOperation response.
+func extractGeminiVideoBase64FromPayload(body []byte) *geminiVideoResult {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+
+	resp, ok := payload["response"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	// Check response.videos[0].bytesBase64Encoded
+	if videos, ok := resp["videos"].([]any); ok && len(videos) > 0 {
+		if vm, ok := videos[0].(map[string]any); ok {
+			if b64, ok := vm["bytesBase64Encoded"].(string); ok && b64 != "" {
+				data, err := base64.StdEncoding.DecodeString(b64)
+				if err != nil {
+					return nil
+				}
+				mime := "video/mp4"
+				if m, ok := vm["mimeType"].(string); ok && m != "" {
+					mime = m
+				}
+				return &geminiVideoResult{Data: data, MimeType: mime}
+			}
+		}
+	}
+
+	// Check response.bytesBase64Encoded directly
+	if b64, ok := resp["bytesBase64Encoded"].(string); ok && b64 != "" {
+		data, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return nil
+		}
+		return &geminiVideoResult{Data: data, MimeType: "video/mp4"}
+	}
+
+	return nil
 }
 
 func extractGeminiVideoURLFromTaskData(task *model.Task) string {

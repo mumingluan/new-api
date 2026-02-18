@@ -175,17 +175,22 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 // checkTokenRateLimit 检查 token 分钟级限流
 func checkTokenRateLimit(c *gin.Context) bool {
 	if !setting.TokenRateLimitEnabled {
+		fmt.Println("[DEBUG] TokenRateLimitEnabled is false, skipping minute rate limit")
 		return true
 	}
 
 	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
 	if tokenId == 0 {
 		// 如果没有 token ID，跳过 per-key 限流
+		fmt.Println("[DEBUG] tokenId is 0, skipping minute rate limit")
 		return true
 	}
 
-	// 获取分组配置（使用 token group）
+	// 获取分组配置（优先使用 token group，如果为空则使用 user group）
 	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+	if group == "" {
+		group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	}
 	totalMaxCount := setting.TokenRateLimitCount
 	successMaxCount := setting.TokenRateLimitSuccessCount
 
@@ -196,8 +201,12 @@ func checkTokenRateLimit(c *gin.Context) bool {
 		successMaxCount = groupSuccessCount
 	}
 
+	fmt.Printf("[DEBUG] Minute rate limit check: tokenId=%d, group=%s, found=%v, totalMaxCount=%d, successMaxCount=%d\n",
+		tokenId, group, found, totalMaxCount, successMaxCount)
+
 	// 如果两个限制都为0，表示不限制
 	if totalMaxCount == 0 && successMaxCount == 0 {
+		fmt.Println("[DEBUG] Both minute limits are 0, skipping minute rate limit")
 		return true
 	}
 
@@ -293,8 +302,11 @@ func recordTokenRateLimitSuccess(c *gin.Context) {
 		return
 	}
 
-	// 获取分组配置
+	// 获取分组配置（优先使用 token group，如果为空则使用 user group）
 	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+	if group == "" {
+		group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	}
 	successMaxCount := setting.TokenRateLimitSuccessCount
 
 	_, groupSuccessCount, found := setting.GetTokenRateLimit(group)
@@ -324,17 +336,22 @@ func recordTokenRateLimitSuccess(c *gin.Context) {
 // checkTokenDailyRateLimit 检查 token 每日限流
 func checkTokenDailyRateLimit(c *gin.Context) bool {
 	if !setting.TokenDailyRateLimitEnabled {
+		fmt.Println("[DEBUG] TokenDailyRateLimitEnabled is false, skipping daily rate limit")
 		return true
 	}
 
 	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
 	if tokenId == 0 {
 		// 如果没有 token ID，跳过 per-key 限流
+		fmt.Println("[DEBUG] tokenId is 0, skipping daily rate limit")
 		return true
 	}
 
-	// 获取分组配置
+	// 获取分组配置（优先使用 token group，如果为空则使用 user group）
 	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+	if group == "" {
+		group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	}
 	totalMaxCount := setting.TokenDailyRateLimitCount
 	successMaxCount := setting.TokenDailyRateLimitSuccessCount
 
@@ -345,13 +362,27 @@ func checkTokenDailyRateLimit(c *gin.Context) bool {
 		successMaxCount = groupSuccessCount
 	}
 
+	fmt.Printf("[DEBUG] Daily rate limit check: tokenId=%d, group=%s, found=%v, totalMaxCount=%d, successMaxCount=%d\n",
+		tokenId, group, found, totalMaxCount, successMaxCount)
+
 	// 如果两个限制都为0，表示不限制
 	if totalMaxCount == 0 && successMaxCount == 0 {
+		fmt.Println("[DEBUG] Both limits are 0, skipping daily rate limit")
 		return true
 	}
 
-	rateLimitKey := strconv.Itoa(tokenId)
-	duration := int64(86400) // 24小时 = 86400秒
+	// 使用北京时间 (UTC+8) 计算当日的 key 后缀（格式：YYYYMMDD）
+	// 这样每个自然日（北京时间）都有独立的 key，到次日 00:00 自动失效
+	beijingLoc := time.FixedZone("CST", 8*3600) // UTC+8
+	beijingNow := time.Now().In(beijingLoc)
+	dateKey := beijingNow.Format("20060102")
+	rateLimitKey := fmt.Sprintf("%d:%s", tokenId, dateKey)
+
+	// 计算到北京时间次日 00:00 的剩余秒数
+	nextDay := time.Date(beijingNow.Year(), beijingNow.Month(), beijingNow.Day()+1, 0, 0, 0, 0, beijingLoc)
+	duration := int64(nextDay.Sub(beijingNow).Seconds()) + 60 // 额外 60 秒缓冲
+
+	fmt.Printf("[DEBUG] Daily rate limit key: %s, duration until next Beijing day: %d seconds\n", rateLimitKey, duration)
 
 	if common.RedisEnabled {
 		return checkTokenDailyRateLimitRedis(c, rateLimitKey, totalMaxCount, successMaxCount, duration)
@@ -361,50 +392,70 @@ func checkTokenDailyRateLimit(c *gin.Context) bool {
 }
 
 // checkTokenDailyRateLimitRedis Redis版本的每日限流检查
+// 使用固定窗口计数器实现每日配额限制
 func checkTokenDailyRateLimitRedis(c *gin.Context, rateLimitKey string, totalMaxCount, successMaxCount int, duration int64) bool {
 	ctx := context.Background()
 	rdb := common.RDB
 
-	// 1. 检查成功请求数限制
-	if successMaxCount > 0 {
-		successKey := fmt.Sprintf("rateLimit:%s:%s", TokenDailyRateLimitSuccessCountMark, rateLimitKey)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
-		if err != nil {
-			fmt.Println("检查每日成功请求数限制失败:", err.Error())
-			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-			return false
-		}
-		if !allowed {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, "您已达到每日请求数限制")
-			return false
-		}
-	}
+	// Lua 脚本：原子性地增加计数并检查是否超限
+	// 如果超限则回滚（减少计数）并返回 0，否则返回当前计数
+	luaScript := `
+		local count = redis.call('INCR', KEYS[1])
+		if count == 1 then
+			redis.call('EXPIRE', KEYS[1], ARGV[1])
+		end
+		if count > tonumber(ARGV[2]) then
+			redis.call('DECR', KEYS[1])
+			return 0
+		end
+		return count
+	`
 
-	// 2. 检查总请求数限制
+	// 1. 检查总请求数限制（先检查总数，因为总数包括失败请求）
 	if totalMaxCount > 0 {
 		totalKey := fmt.Sprintf("rateLimit:%s:%s", TokenDailyRateLimitCountMark, rateLimitKey)
-		tb := limiter.New(ctx, rdb)
-		allowed, err := tb.Allow(
-			ctx,
-			totalKey,
-			limiter.WithCapacity(int64(totalMaxCount)*duration),
-			limiter.WithRate(int64(totalMaxCount)),
-			limiter.WithRequested(duration),
-		)
-
+		count, err := rdb.Eval(ctx, luaScript, []string{totalKey}, duration, totalMaxCount).Int64()
 		if err != nil {
 			fmt.Println("检查每日总请求数限制失败:", err.Error())
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 			return false
 		}
-
-		if !allowed {
+		if count == 0 {
 			abortWithOpenAiMessage(c, http.StatusTooManyRequests, "您已达到每日总请求数限制（包括失败请求）")
 			return false
 		}
 	}
 
+	// 2. 检查并预占成功请求数配额
+	if successMaxCount > 0 {
+		successKey := fmt.Sprintf("rateLimit:%s:%s", TokenDailyRateLimitSuccessCountMark, rateLimitKey)
+		count, err := rdb.Eval(ctx, luaScript, []string{successKey}, duration, successMaxCount).Int64()
+		if err != nil {
+			fmt.Println("检查每日成功请求数限制失败:", err.Error())
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return false
+		}
+		if count == 0 {
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, "您已达到每日请求数限制")
+			return false
+		}
+		// 标记已预占成功请求配额，请求失败时需要回滚
+		c.Set("daily_success_quota_reserved", true)
+		c.Set("daily_success_quota_key", successKey)
+	}
+
 	return true
+}
+
+// rollbackDailySuccessQuota 回滚预占的成功请求配额
+func rollbackDailySuccessQuota(c *gin.Context) {
+	if reserved, exists := c.Get("daily_success_quota_reserved"); exists && reserved.(bool) {
+		if key, exists := c.Get("daily_success_quota_key"); exists {
+			ctx := context.Background()
+			common.RDB.Decr(ctx, key.(string))
+			c.Set("daily_success_quota_reserved", false)
+		}
+	}
 }
 
 // checkTokenDailyRateLimitMemory 内存版本的每日限流检查
@@ -431,42 +482,50 @@ func checkTokenDailyRateLimitMemory(c *gin.Context, rateLimitKey string, totalMa
 	return true
 }
 
-// recordTokenDailySuccess 记录每日成功请求
+// recordTokenDailySuccess 处理每日成功请求计数
+// 由于成功请求配额在检查时已预占，这里只需要处理请求失败时的回滚
+// 请求成功时不需要额外操作（配额已预占）
 func recordTokenDailySuccess(c *gin.Context) {
-	if !setting.TokenDailyRateLimitEnabled {
-		return
-	}
-
-	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
-	if tokenId == 0 {
-		return
-	}
-
-	// 获取分组配置
-	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
-	successMaxCount := setting.TokenDailyRateLimitSuccessCount
-
-	_, groupSuccessCount, found := setting.GetTokenDailyRateLimit(group)
-	if found {
-		successMaxCount = groupSuccessCount
-	}
-
-	if successMaxCount == 0 {
-		return
-	}
-
-	rateLimitKey := strconv.Itoa(tokenId)
-
+	// 请求成功，配额已在检查时预占，清除标记即可
 	if common.RedisEnabled {
-		ctx := context.Background()
-		rdb := common.RDB
-		successKey := fmt.Sprintf("rateLimit:%s:%s", TokenDailyRateLimitSuccessCountMark, rateLimitKey)
-		duration := int64(86400)
-		recordRedisRequest(ctx, rdb, successKey, successMaxCount, duration)
+		c.Set("daily_success_quota_reserved", false)
 	} else {
+		// 内存模式：请求成功时记录
+		if !setting.TokenDailyRateLimitEnabled {
+			return
+		}
+
+		tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+		if tokenId == 0 {
+			return
+		}
+
+		group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+		if group == "" {
+			group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+		}
+		successMaxCount := setting.TokenDailyRateLimitSuccessCount
+
+		_, groupSuccessCount, found := setting.GetTokenDailyRateLimit(group)
+		if found {
+			successMaxCount = groupSuccessCount
+		}
+
+		if successMaxCount == 0 {
+			return
+		}
+
+		rateLimitKey := strconv.Itoa(tokenId)
 		duration := int64(86400)
 		successKey := TokenDailyRateLimitSuccessCountMark + rateLimitKey
 		inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
+	}
+}
+
+// rollbackTokenDailyQuota 请求失败时回滚预占的每日配额
+func rollbackTokenDailyQuota(c *gin.Context) {
+	if common.RedisEnabled {
+		rollbackDailySuccessQuota(c)
 	}
 }
 
@@ -486,10 +545,12 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		// 3. 再检查原有的 per-user 限流（保持兼容性）
 		if !setting.ModelRequestRateLimitEnabled {
 			c.Next()
-			// 请求成功后记录 per-key 成功请求
+			// 请求成功后确认配额，失败则回滚
 			if c.Writer.Status() < 400 {
 				recordTokenRateLimitSuccess(c)
 				recordTokenDailySuccess(c)
+			} else {
+				rollbackTokenDailyQuota(c)
 			}
 			return
 		}
@@ -516,10 +577,12 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			memoryRateLimitHandler(duration, totalMaxCount, successMaxCount)(c)
 		}
 
-		// 请求成功后记录 per-key 成功请求
+		// 请求成功后确认配额，失败则回滚
 		if c.Writer.Status() < 400 {
 			recordTokenRateLimitSuccess(c)
 			recordTokenDailySuccess(c)
+		} else {
+			rollbackTokenDailyQuota(c)
 		}
 	}
 }

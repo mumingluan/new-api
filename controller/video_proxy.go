@@ -90,12 +90,29 @@ func VideoProxy(c *gin.Context) {
 			videoProxyError(c, http.StatusInternalServerError, "server_error", "API key not stored for task")
 			return
 		}
-		videoURL, err = getGeminiVideoURL(channel, task, apiKey)
+
+		result, err := getGeminiVideoResult(channel, task, apiKey)
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Gemini video URL for task %s: %s", taskID, err.Error()))
-			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Gemini video URL")
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Gemini video for task %s: %s", taskID, err.Error()))
+			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Gemini video")
 			return
 		}
+
+		// Inline base64 data: write directly without proxying
+		if result.Data != nil {
+			mime := result.MimeType
+			if mime == "" {
+				mime = "video/mp4"
+			}
+			c.Header("Content-Type", mime)
+			c.Header("Content-Length", fmt.Sprintf("%d", len(result.Data)))
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Writer.WriteHeader(http.StatusOK)
+			_, _ = c.Writer.Write(result.Data)
+			return
+		}
+
+		videoURL = result.URL
 		req.Header.Set("x-goog-api-key", apiKey)
 	case constant.ChannelTypeVertexAi:
 		videoURL, err = getVertexVideoURL(channel, task)

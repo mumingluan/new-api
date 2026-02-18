@@ -426,7 +426,7 @@ export default function RequestRateLimit(props) {
                         <li>{t('最大值为2147483647。')}</li>
                         <li>{t('分组配置优先级高于全局配置。')}</li>
                         <li>{t('此限制按API密钥（Token）维度，每个密钥独立计算。')}</li>
-                        <li>{t('限制周期为自然日（UTC+0），每日0点重置。')}</li>
+                        <li>{t('限制周期为自然日（北京时间 UTC+8），每日0点重置。')}</li>
                       </ul>
                     </div>
                   }

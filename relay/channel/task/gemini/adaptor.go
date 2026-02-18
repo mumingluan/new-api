@@ -190,14 +190,28 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("decode task_id failed: %w", err)
 	}
 
-	version := model_setting.GetGeminiVersionSetting("default")
-	url := fmt.Sprintf("%s/%s/%s", baseUrl, version, upstreamName)
+	// Extract model name from operation name to build fetchPredictOperation URL
+	modelName := extractModelFromOperationName(upstreamName)
+	if modelName == "" {
+		return nil, fmt.Errorf("cannot extract model name from operation: %s", upstreamName)
+	}
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	version := model_setting.GetGeminiVersionSetting(modelName)
+	url := fmt.Sprintf("%s/%s/models/%s:fetchPredictOperation", baseUrl, version, modelName)
+
+	fetchBody, err := common.Marshal(map[string]string{
+		"operationName": upstreamName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal fetch body failed: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(fetchBody))
 	if err != nil {
 		return nil, err
 	}
 
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("x-goog-api-key", key)
 
