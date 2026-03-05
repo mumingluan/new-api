@@ -85,7 +85,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	if info.RelayMode == constant.RelayModeRerank {
 		usage, err = common_handler.RerankHandler(c, info, resp)
 	} else if info.RelayMode == constant.RelayModeEmbeddings {
-		usage, err = openai.OpenaiHandler(c, info, resp)
+		usage, err = openai.OpenaiHandlerWithUsage(c, info, resp)
 	}
 	return
 }

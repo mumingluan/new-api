@@ -110,7 +110,8 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	// 检查是否为空响应（上游超时或返回空内容）
-	if usage.TotalTokens == 0 {
+	// 当存在工具调用时，CompletionTokens 可能为 0，不应视为空响应
+	if usage.CompletionTokens <= 0 && info.SendResponseCount == 0 {
 		return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 

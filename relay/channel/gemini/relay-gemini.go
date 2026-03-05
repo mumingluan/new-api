@@ -1309,7 +1309,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason))
 		}
 
-		// 统计图片数量
+		// 统计图片数量和工具调用
 		for _, candidate := range geminiResponse.Candidates {
 			for _, part := range candidate.Content.Parts {
 				if part.InlineData != nil && part.InlineData.MimeType != "" {
@@ -1317,6 +1317,12 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 				}
 				if part.Text != "" {
 					responseText.WriteString(part.Text)
+				}
+				if part.FunctionCall != nil {
+					responseText.WriteString(part.FunctionCall.FunctionName)
+					if args, err := common.Marshal(part.FunctionCall.Arguments); err == nil {
+						responseText.WriteString(string(args))
+					}
 				}
 			}
 		}
@@ -1435,7 +1441,8 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	}
 
 	// 检查是否为空响应（上游超时或返回空内容）
-	if usage.TotalTokens == 0 {
+	// 当存在工具调用时，CompletionTokens 可能为 0，不应视为空响应
+	if usage.CompletionTokens <= 0 && info.SendResponseCount == 0 {
 		return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 
@@ -235,7 +236,8 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	// 检查是否有有效的 choices 返回，如果没有则返回错误以触发重试
-	if len(simpleResponse.Choices) == 0 {
+	// 仅对聊天补全和补全模式检查，嵌入等模式的响应没有 choices 字段
+	if (info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeCompletions) && len(simpleResponse.Choices) == 0 {
 		return nil, types.NewOpenAIError(fmt.Errorf("empty response from upstream API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 
@@ -257,7 +259,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		completionTokens := simpleResponse.Usage.CompletionTokens
 		if completionTokens == 0 {
 			for _, choice := range simpleResponse.Choices {
-				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.ReasoningContent+choice.Message.Reasoning, info.UpstreamModelName)
+				textContent := choice.Message.StringContent() + choice.Message.ReasoningContent + choice.Message.Reasoning
+				if toolCalls := choice.Message.ParseToolCalls(); len(toolCalls) > 0 {
+					for _, tool := range toolCalls {
+						textContent += tool.Function.Name + tool.Function.Arguments
+					}
+				}
+				ctkm := service.CountTextToken(textContent, info.UpstreamModelName)
 				completionTokens += ctkm
 			}
 		}
