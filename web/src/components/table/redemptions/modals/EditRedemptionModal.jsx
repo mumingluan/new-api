@@ -313,6 +313,14 @@ const EditRedemptionModal = (props) => {
                           { value: 50000000, label: '100$' },
                           { value: 250000000, label: '500$' },
                           { value: 500000000, label: '1000$' },
+                          { value: 7500000, label: '15$' },
+                          { value: 12500000, label: '25$' },
+                          { value: 20000000, label: '40$' },
+                          { value: 27500000, label: '55$' },
+                          { value: 32500000, label: '65$' },
+                          { value: 40000000, label: '80$' },
+                          { value: 132500000, label: '265$' },
+                          { value: 267500000, label: '535$' },
                         ]}
                         showClear
                       />
