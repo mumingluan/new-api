@@ -273,3 +273,62 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
 	}
 }
+
+func TestUpdateTokenAutoEnablesWhenExpiredTimeExtended(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+
+	now := common.GetTimestamp()
+
+	token := &model.Token{
+		UserId:         1,
+		Name:           "expired-token",
+		Key:            "expired1234token5678",
+		Status:         common.TokenStatusExpired,
+		CreatedTime:    1,
+		AccessedTime:   1,
+		ExpiredTime:    now - 10,
+		RemainQuota:    100,
+		UnlimitedQuota: true,
+		Group:          "default",
+	}
+	if err := db.Create(token).Error; err != nil {
+		t.Fatalf("failed to create expired token: %v", err)
+	}
+
+	body := map[string]any{
+		"id":                   token.Id,
+		"name":                 "expired-token",
+		"expired_time":         now + 3600,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "default",
+		"cross_group_retry":    false,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var detail tokenResponseItem
+	if err := common.Unmarshal(response.Data, &detail); err != nil {
+		t.Fatalf("failed to decode token update response: %v", err)
+	}
+	if detail.Status != common.TokenStatusEnabled {
+		t.Fatalf("expected token to be auto-enabled after expiry extension, got status=%d", detail.Status)
+	}
+
+	// Ensure DB is updated as well.
+	var stored model.Token
+	if err := db.First(&stored, "id = ?", token.Id).Error; err != nil {
+		t.Fatalf("failed to load token from db: %v", err)
+	}
+	if stored.Status != common.TokenStatusEnabled {
+		t.Fatalf("expected stored token to be enabled, got status=%d", stored.Status)
+	}
+}

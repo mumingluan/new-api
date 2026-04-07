@@ -22,13 +22,29 @@ func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark st
 	ctx := context.Background()
 	rdb := common.RDB
 	key := "rateLimit:" + mark + c.ClientIP()
-	listLength, err := rdb.LLen(ctx, key).Result()
+	
+	// Retry logic for Sentinel failover
+	var listLength int64
+	var err error
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		listLength, err = rdb.LLen(ctx, key).Result()
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(time.Millisecond * 100) // Wait 100ms before retry
+		}
+	}
+	
 	if err != nil {
-		fmt.Println(err.Error())
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
+		fmt.Println("Redis rate limit error after retries:", err.Error())
+		// Fail-open: allow request to proceed when Redis is unavailable
+		// Change to c.Status(http.StatusTooManyRequests) for fail-closed
+		c.Next()
 		return
 	}
+	
 	if listLength < int64(maxRequestNum) {
 		rdb.LPush(ctx, key, time.Now().Format(timeFormat))
 		rdb.Expire(ctx, key, common.RateLimitKeyExpirationDuration)
@@ -155,11 +171,25 @@ func userRateLimitFactory(maxRequestNum int, duration int64, mark string) func(c
 func userRedisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, key string) {
 	ctx := context.Background()
 	rdb := common.RDB
-	listLength, err := rdb.LLen(ctx, key).Result()
+	
+	// Retry logic for Sentinel failover
+	var listLength int64
+	var err error
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		listLength, err = rdb.LLen(ctx, key).Result()
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(time.Millisecond * 100) // Wait 100ms before retry
+		}
+	}
+	
 	if err != nil {
-		fmt.Println(err.Error())
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
+		fmt.Println("Redis rate limit error after retries:", err.Error())
+		// Fail-open: allow request to proceed when Redis is unavailable
+		c.Next()
 		return
 	}
 	if listLength < int64(maxRequestNum) {

@@ -238,6 +238,35 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	// 检查是否有有效的 choices 返回，如果没有则返回错误以触发重试
 	// 仅对聊天补全和补全模式检查，嵌入等模式的响应没有 choices 字段
 	if (info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeCompletions) && len(simpleResponse.Choices) == 0 {
+		var responsesResp dto.OpenAIResponsesResponse
+		if respErr := common.Unmarshal(responseBody, &responsesResp); respErr == nil && responsesResp.Object != "" && len(responsesResp.Output) > 0 {
+			chatId := helper.GetResponseID(c)
+			chatResp, usage, convErr := service.ResponsesResponseToChatCompletionsResponse(&responsesResp, chatId)
+			if convErr == nil && chatResp != nil {
+				if usage == nil || usage.TotalTokens == 0 {
+					text := service.ExtractOutputTextFromResponses(&responsesResp)
+					usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
+					chatResp.Usage = *usage
+				}
+
+				var converted []byte
+				switch info.RelayFormat {
+				case types.RelayFormatClaude:
+					claudeResp := service.ResponseOpenAI2Claude(chatResp, info)
+					converted, err = common.Marshal(claudeResp)
+				case types.RelayFormatGemini:
+					geminiResp := service.ResponseOpenAI2Gemini(chatResp, info)
+					converted, err = common.Marshal(geminiResp)
+				default:
+					converted, err = common.Marshal(chatResp)
+				}
+				if err != nil {
+					return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+				}
+				service.IOCopyBytesGracefully(c, resp, converted)
+				return usage, nil
+			}
+		}
 		return nil, types.NewOpenAIError(fmt.Errorf("empty response from upstream API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 

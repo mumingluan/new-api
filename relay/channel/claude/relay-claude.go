@@ -843,7 +843,8 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	// 记录拒绝原因（上游功能）
 	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
 	// 检查是否有有效的内容返回，如果没有则返回错误以触发重试
-	if len(claudeResponse.Content) == 0 && claudeResponse.Completion == "" {
+	stopReason := strings.TrimSpace(claudeResponse.StopReason)
+	if len(claudeResponse.Content) == 0 && claudeResponse.Completion == "" && stopReason != "tool_use" && stopReason != "tool_calls" {
 		return types.NewOpenAIError(fmt.Errorf("empty response from Claude API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 	if claudeInfo.Usage == nil {
