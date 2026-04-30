@@ -2,7 +2,6 @@ package relay
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -52,16 +50,17 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		request.MaxTokens = &defaultMaxTokens
 	}
 
-	if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(request.Model); ok && effortLevel != "" &&
-		strings.HasPrefix(request.Model, "claude-opus-4-6") {
-		request.Model = baseModel
-		request.Thinking = &dto.Thinking{
-			Type: "adaptive",
-		}
-		request.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
-		request.Temperature = common.GetPointer[float64](1.0)
-		info.UpstreamModelName = request.Model
-	} else if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
+	// if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(request.Model); ok && effortLevel != "" &&
+	// 	strings.HasPrefix(request.Model, "claude-opus-4-6") {
+	// 	request.Model = baseModel
+	// 	request.Thinking = &dto.Thinking{
+	// 		Type: "adaptive",
+	// 	}
+	// 	request.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
+	// 	request.Temperature = common.GetPointer[float64](1.0)
+	// 	info.UpstreamModelName = request.Model
+	// } else
+	if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
 		strings.HasSuffix(request.Model, "-thinking") {
 		if request.Thinking == nil {
 			// 因为BudgetTokens 必须大于1024

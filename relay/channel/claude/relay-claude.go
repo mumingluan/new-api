@@ -17,7 +17,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/reasonmap"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -153,16 +152,17 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 		claudeRequest.MaxTokens = &defaultMaxTokens
 	}
 
-	if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(textRequest.Model); ok && effortLevel != "" &&
-		strings.HasPrefix(textRequest.Model, "claude-opus-4-6") {
-		claudeRequest.Model = baseModel
-		claudeRequest.Thinking = &dto.Thinking{
-			Type: "adaptive",
-		}
-		claudeRequest.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
-		claudeRequest.TopP = common.GetPointer[float64](0)
-		claudeRequest.Temperature = common.GetPointer[float64](1.0)
-	} else if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
+	// if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(textRequest.Model); ok && effortLevel != "" &&
+	// 	strings.HasPrefix(textRequest.Model, "claude-opus-4-6") {
+	// 	claudeRequest.Model = baseModel
+	// 	claudeRequest.Thinking = &dto.Thinking{
+	// 		Type: "adaptive",
+	// 	}
+	// 	claudeRequest.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
+	// 	claudeRequest.TopP = common.GetPointer[float64](0)
+	// 	claudeRequest.Temperature = common.GetPointer[float64](1.0)
+	// } else
+	if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
 		strings.HasSuffix(textRequest.Model, "-thinking") {
 
 		// 因为BudgetTokens 必须大于1024

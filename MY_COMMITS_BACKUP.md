@@ -1,5 +1,28 @@
 # zch-api 提交记录备份
 
+## 2026-04-08: 注释掉模型名 reasoning effort 后缀自动剥离逻辑
+
+### 修改内容
+注释掉所有将模型名中 `-low`、`-medium`、`-high`、`-none`、`-minimal`、`-max`、`-xhigh` 后缀自动剥离并转换为 `reasoning_effort` 参数的逻辑。
+
+### 修改文件
+| 文件 | 说明 |
+|------|------|
+| `relay/channel/openai/adaptor.go` | 注释掉 Chat 和 Responses 请求中 `parseReasoningEffortFromModelSuffix` 调用 |
+| `relay/claude_handler.go` | 注释掉 `TrimEffortSuffix` + adaptive thinking 转换，移除未使用的 `encoding/json` 和 `reasoning` 导入 |
+| `relay/channel/claude/relay-claude.go` | 注释掉 `TrimEffortSuffix` + adaptive thinking 转换，移除未使用的 `reasoning` 导入 |
+| `relay/channel/gemini/relay-gemini.go` | 注释掉 `TrimEffortSuffix` + ThinkingLevel 设置，移除未使用的 `reasoning` 导入 |
+| `relay/channel/gemini/adaptor.go` | 注释掉 `TrimEffortSuffix` 模型名剥离，移除未使用的 `reasoning` 导入 |
+| `relay/channel/vertex/adaptor.go` | 注释掉 `TrimEffortSuffix` 模型名剥离，移除未使用的 `reasoning` 导入 |
+
+### 效果
+- 模型名中的后缀（如 `o3-mini-low` 的 `-low`）不再被自动剥离
+- 模型名原样传递给上游 provider
+- `setting/reasoning/suffix.go` 中的 `TrimEffortSuffix` 函数保留但不再被调用
+- `relay/channel/openai/adaptor.go` 中的 `parseReasoningEffortFromModelSuffix` 函数保留但不再被调用
+
+---
+
 ## 2026-03-24: Redis Sentinel 故障转移重试逻辑
 
 ### 修改内容
