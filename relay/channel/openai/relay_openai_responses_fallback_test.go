@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +50,7 @@ func TestOpenaiHandler_FallbackResponsesToolCallOnly(t *testing.T) {
 				Role:      "assistant",
 				CallId:    "call_1",
 				Name:      "get_weather",
-				Arguments: "{\"location\":\"SF\"}",
+				Arguments: json.RawMessage(`{"location":"SF"}`),
 			},
 		},
 		Usage: &dto.Usage{InputTokens: 3, OutputTokens: 4, TotalTokens: 7},
