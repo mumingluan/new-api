@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/reasonmap"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -152,29 +153,25 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 		claudeRequest.MaxTokens = &defaultMaxTokens
 	}
 
-	// Disabled per MY_COMMITS_BACKUP.md (2026-04-08): do NOT auto-strip
-	// model-name effort suffix and inject adaptive thinking. The model name
-	// must be passed through to the upstream provider unchanged.
-	// if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(textRequest.Model); ok && effortLevel != "" &&
-	// 	(strings.HasPrefix(textRequest.Model, "claude-opus-4-6") || strings.HasPrefix(textRequest.Model, "claude-opus-4-7")) {
-	// 	claudeRequest.Model = baseModel
-	// 	claudeRequest.Thinking = &dto.Thinking{
-	// 		Type: "adaptive",
-	// 	}
-	// 	claudeRequest.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
-	// 	if strings.HasPrefix(baseModel, "claude-opus-4-7") {
-	// 		// Opus 4.7 rejects non-default temperature/top_p/top_k with 400
-	// 		// and defaults display to "omitted"; restore the 4.6 visible summary.
-	// 		claudeRequest.Thinking.Display = "summarized"
-	// 		claudeRequest.Temperature = nil
-	// 		claudeRequest.TopP = nil
-	// 		claudeRequest.TopK = nil
-	// 	} else {
-	// 		claudeRequest.TopP = nil
-	// 		claudeRequest.Temperature = common.GetPointer[float64](1.0)
-	// 	}
-	// } else
-	if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
+	if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(textRequest.Model); ok && effortLevel != "" &&
+		(strings.HasPrefix(textRequest.Model, "claude-opus-4-6") || strings.HasPrefix(textRequest.Model, "claude-opus-4-7")) {
+		claudeRequest.Model = baseModel
+		claudeRequest.Thinking = &dto.Thinking{
+			Type: "adaptive",
+		}
+		claudeRequest.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
+		if strings.HasPrefix(baseModel, "claude-opus-4-7") {
+			// Opus 4.7 rejects non-default temperature/top_p/top_k with 400
+			// and defaults display to "omitted"; restore the 4.6 visible summary.
+			claudeRequest.Thinking.Display = "summarized"
+			claudeRequest.Temperature = nil
+			claudeRequest.TopP = nil
+			claudeRequest.TopK = nil
+		} else {
+			claudeRequest.TopP = nil
+			claudeRequest.Temperature = common.GetPointer[float64](1.0)
+		}
+	} else if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
 		strings.HasSuffix(textRequest.Model, "-thinking") {
 
 		trimmedModel := strings.TrimSuffix(textRequest.Model, "-thinking")

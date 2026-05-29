@@ -66,4 +66,10 @@ const (
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
 	ContextKeyIsStream ContextKey = "is_stream"
+
+	// Per-token daily rate limit quota reservation (set in ModelRequestRateLimit middleware).
+	// When the daily success-count quota is checked, we pre-increment the Redis counter
+	// and remember the key here so the middleware can roll it back if the request fails.
+	ContextKeyDailySuccessQuotaReserved ContextKey = "daily_success_quota_reserved"
+	ContextKeyDailySuccessQuotaKey      ContextKey = "daily_success_quota_key"
 )

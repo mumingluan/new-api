@@ -2,7 +2,6 @@ package controller
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -86,7 +85,7 @@ func getGeminiVideoResult(channel *model.Channel, task *model.Task, apiKey strin
 // extractGeminiVideoBase64FromPayload extracts inline base64 video from fetchPredictOperation response.
 func extractGeminiVideoBase64FromPayload(body []byte) *geminiVideoResult {
 	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := common.Unmarshal(body, &payload); err != nil {
 		return nil
 	}
 

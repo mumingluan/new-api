@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -186,14 +187,13 @@ func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.Rel
 					ThinkingBudget: common.GetPointer(0),
 				}
 			}
+		} else if _, level, ok := reasoning.TrimEffortSuffix(info.UpstreamModelName); ok && level != "" {
+			geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+				IncludeThoughts: true,
+				ThinkingLevel:   level,
+			}
+			info.ReasoningEffort = level
 		}
-		// } else if _, level, ok := reasoning.TrimEffortSuffix(info.UpstreamModelName); ok && level != "" {
-		// 	geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
-		// 		IncludeThoughts: true,
-		// 		ThinkingLevel:   level,
-		// 	}
-		// 	info.ReasoningEffort = level
-		// }
 	}
 }
 

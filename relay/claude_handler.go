@@ -15,7 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	// "github.com/QuantumNous/new-api/setting/reasoning" // disabled along with TrimEffortSuffix adaptive-thinking block
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -52,29 +52,25 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		request.MaxTokens = &defaultMaxTokens
 	}
 
-	// Disabled per MY_COMMITS_BACKUP.md (2026-04-08): do NOT auto-strip
-	// model-name effort suffix and inject adaptive thinking. The model name
-	// must be passed through to the upstream provider unchanged.
-	// if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(request.Model); ok && effortLevel != "" &&
-	// 	(strings.HasPrefix(request.Model, "claude-opus-4-6") || strings.HasPrefix(request.Model, "claude-opus-4-7")) {
-	// 	request.Model = baseModel
-	// 	request.Thinking = &dto.Thinking{
-	// 		Type: "adaptive",
-	// 	}
-	// 	request.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
-	// 	if strings.HasPrefix(request.Model, "claude-opus-4-7") {
-	// 		// Opus 4.7 rejects non-default temperature/top_p/top_k with 400
-	// 		// and defaults display to "omitted"; restore the 4.6 visible summary.
-	// 		request.Thinking.Display = "summarized"
-	// 		request.Temperature = nil
-	// 		request.TopP = nil
-	// 		request.TopK = nil
-	// 	} else {
-	// 		request.Temperature = common.GetPointer[float64](1.0)
-	// 	}
-	// 	info.UpstreamModelName = request.Model
-	// } else
-	if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
+	if baseModel, effortLevel, ok := reasoning.TrimEffortSuffix(request.Model); ok && effortLevel != "" &&
+		(strings.HasPrefix(request.Model, "claude-opus-4-6") || strings.HasPrefix(request.Model, "claude-opus-4-7")) {
+		request.Model = baseModel
+		request.Thinking = &dto.Thinking{
+			Type: "adaptive",
+		}
+		request.OutputConfig = json.RawMessage(fmt.Sprintf(`{"effort":"%s"}`, effortLevel))
+		if strings.HasPrefix(request.Model, "claude-opus-4-7") {
+			// Opus 4.7 rejects non-default temperature/top_p/top_k with 400
+			// and defaults display to "omitted"; restore the 4.6 visible summary.
+			request.Thinking.Display = "summarized"
+			request.Temperature = nil
+			request.TopP = nil
+			request.TopK = nil
+		} else {
+			request.Temperature = common.GetPointer[float64](1.0)
+		}
+		info.UpstreamModelName = request.Model
+	} else if model_setting.GetClaudeSettings().ThinkingAdapterEnabled &&
 		strings.HasSuffix(request.Model, "-thinking") {
 		if request.Thinking == nil {
 			baseModel := strings.TrimSuffix(request.Model, "-thinking")

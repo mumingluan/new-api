@@ -284,14 +284,6 @@ func (token *Token) Insert() error {
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() (err error) {
-	// If an expired token gets its expiry extended (renewal), it should become usable again.
-	// Keep manual disable (TokenStatusDisabled) untouched.
-	if token.Status == common.TokenStatusExpired {
-		now := common.GetTimestamp()
-		if token.ExpiredTime == -1 || token.ExpiredTime > now {
-			token.Status = common.TokenStatusEnabled
-		}
-	}
 	defer func() {
 		if shouldUpdateRedis(true, err) {
 			gopool.Go(func() {

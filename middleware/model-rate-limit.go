@@ -440,8 +440,8 @@ func checkTokenDailyRateLimitRedis(c *gin.Context, rateLimitKey string, totalMax
 			return false
 		}
 		// 标记已预占成功请求配额，请求失败时需要回滚
-		c.Set("daily_success_quota_reserved", true)
-		c.Set("daily_success_quota_key", successKey)
+		c.Set(string(constant.ContextKeyDailySuccessQuotaReserved), true)
+		c.Set(string(constant.ContextKeyDailySuccessQuotaKey), successKey)
 	}
 
 	return true
@@ -449,11 +449,11 @@ func checkTokenDailyRateLimitRedis(c *gin.Context, rateLimitKey string, totalMax
 
 // rollbackDailySuccessQuota 回滚预占的成功请求配额
 func rollbackDailySuccessQuota(c *gin.Context) {
-	if reserved, exists := c.Get("daily_success_quota_reserved"); exists && reserved.(bool) {
-		if key, exists := c.Get("daily_success_quota_key"); exists {
+	if reserved, exists := c.Get(string(constant.ContextKeyDailySuccessQuotaReserved)); exists && reserved.(bool) {
+		if key, exists := c.Get(string(constant.ContextKeyDailySuccessQuotaKey)); exists {
 			ctx := context.Background()
 			common.RDB.Decr(ctx, key.(string))
-			c.Set("daily_success_quota_reserved", false)
+			c.Set(string(constant.ContextKeyDailySuccessQuotaReserved), false)
 		}
 	}
 }
@@ -488,7 +488,7 @@ func checkTokenDailyRateLimitMemory(c *gin.Context, rateLimitKey string, totalMa
 func recordTokenDailySuccess(c *gin.Context) {
 	// 请求成功，配额已在检查时预占，清除标记即可
 	if common.RedisEnabled {
-		c.Set("daily_success_quota_reserved", false)
+		c.Set(string(constant.ContextKeyDailySuccessQuotaReserved), false)
 	} else {
 		// 内存模式：请求成功时记录
 		if !setting.TokenDailyRateLimitEnabled {

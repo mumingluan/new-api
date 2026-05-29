@@ -28,7 +28,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	// "github.com/QuantumNous/new-api/setting/reasoning" // disabled along with TrimEffortSuffix model-suffix parsing (see MY_COMMITS_BACKUP.md 2026-04-08)
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 
@@ -327,16 +327,13 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 			request.LogProbs = nil
 		}
 
-		// Disabled per MY_COMMITS_BACKUP.md (2026-04-08): do NOT auto-strip
-		// model-name effort suffix into ReasoningEffort. Model name passes
-		// through to upstream unchanged.
 		// 转换模型推理力度后缀
-		// effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
-		// if effort != "" {
-		// 	request.ReasoningEffort = effort
-		// 	info.UpstreamModelName = originModel
-		// 	request.Model = originModel
-		// }
+		effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
+		if effort != "" {
+			request.ReasoningEffort = effort
+			info.UpstreamModelName = originModel
+			request.Model = originModel
+		}
 
 		info.ReasoningEffort = request.ReasoningEffort
 
@@ -585,21 +582,18 @@ func detectImageMimeType(filename string) string {
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// Disabled per MY_COMMITS_BACKUP.md (2026-04-08): do NOT auto-strip
-	// model-name effort suffix into Reasoning.Effort. Model name passes
-	// through to upstream unchanged.
 	//  转换模型推理力度后缀
-	// effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(request.Model)
-	// if effort != "" {
-	// 	if request.Reasoning == nil {
-	// 		request.Reasoning = &dto.Reasoning{
-	// 			Effort: effort,
-	// 		}
-	// 	} else {
-	// 		request.Reasoning.Effort = effort
-	// 	}
-	// 	request.Model = originModel
-	// }
+	effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(request.Model)
+	if effort != "" {
+		if request.Reasoning == nil {
+			request.Reasoning = &dto.Reasoning{
+				Effort: effort,
+			}
+		} else {
+			request.Reasoning.Effort = effort
+		}
+		request.Model = originModel
+	}
 	if info != nil && request.Reasoning != nil && request.Reasoning.Effort != "" {
 		info.ReasoningEffort = request.Reasoning.Effort
 	}
