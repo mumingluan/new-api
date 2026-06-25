@@ -29,6 +29,11 @@ const (
 	TokenDailyRateLimitSuccessCountMark = "TDRLS"
 )
 
+func tokenDailyRateLimitKey(tokenId int, now time.Time) string {
+	beijingLoc := time.FixedZone("CST", 8*3600)
+	return fmt.Sprintf("%d:%s", tokenId, now.In(beijingLoc).Format("20060102"))
+}
+
 // 检查Redis中的请求限制
 func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
 	// 如果maxCount为0，表示不限制
@@ -375,8 +380,7 @@ func checkTokenDailyRateLimit(c *gin.Context) bool {
 	// 这样每个自然日（北京时间）都有独立的 key，到次日 00:00 自动失效
 	beijingLoc := time.FixedZone("CST", 8*3600) // UTC+8
 	beijingNow := time.Now().In(beijingLoc)
-	dateKey := beijingNow.Format("20060102")
-	rateLimitKey := fmt.Sprintf("%d:%s", tokenId, dateKey)
+	rateLimitKey := tokenDailyRateLimitKey(tokenId, beijingNow)
 
 	// 计算到北京时间次日 00:00 的剩余秒数
 	nextDay := time.Date(beijingNow.Year(), beijingNow.Month(), beijingNow.Day()+1, 0, 0, 0, 0, beijingLoc)
@@ -515,7 +519,7 @@ func recordTokenDailySuccess(c *gin.Context) {
 			return
 		}
 
-		rateLimitKey := strconv.Itoa(tokenId)
+		rateLimitKey := tokenDailyRateLimitKey(tokenId, time.Now())
 		duration := int64(86400)
 		successKey := TokenDailyRateLimitSuccessCountMark + rateLimitKey
 		inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
