@@ -32,56 +32,23 @@ func InitRedisClient() (err error) {
 		SyncFrequency = 60
 	}
 	SysLog("Redis is enabled")
+	opt, err := redis.ParseURL(os.Getenv("REDIS_CONN_STRING"))
+	if err != nil {
+		FatalLog("failed to parse Redis connection string: " + err.Error())
+	}
+	opt.PoolSize = GetEnvOrDefault("REDIS_POOL_SIZE", 10)
+	RDB = redis.NewClient(opt)
 
-	// Check if Sentinel mode is enabled
-	sentinelAddrs := os.Getenv("REDIS_SENTINEL_ADDRS")
-	masterName := os.Getenv("REDIS_SENTINEL_MASTER_NAME")
-	
-	if sentinelAddrs != "" && masterName != "" {
-		// Sentinel mode
-		SysLog("Redis Sentinel mode enabled")
-		addrs := parseCommaSeparated(sentinelAddrs)
-		
-		failoverOpt := &redis.FailoverOptions{
-			MasterName:    masterName,
-			SentinelAddrs: addrs,
-			DB:            GetEnvOrDefaultInt("REDIS_DB", 0),
-			Password:      os.Getenv("REDIS_PASSWORD"),
-			PoolSize:      GetEnvOrDefault("REDIS_POOL_SIZE", 10),
-		}
-		
-		RDB = redis.NewFailoverClient(failoverOpt)
-		
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		
-		_, err = RDB.Ping(ctx).Result()
-		if err != nil {
-			FatalLog("Redis Sentinel ping test failed: " + err.Error())
-		}
-		if DebugEnabled {
-			SysLog(fmt.Sprintf("Redis Sentinel connected, master: %s, sentinels: %v", masterName, addrs))
-		}
-	} else {
-		// Standard single-instance mode
-		opt, err := redis.ParseURL(os.Getenv("REDIS_CONN_STRING"))
-		if err != nil {
-			FatalLog("failed to parse Redis connection string: " + err.Error())
-		}
-		opt.PoolSize = GetEnvOrDefault("REDIS_POOL_SIZE", 10)
-		RDB = redis.NewClient(opt)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		_, err = RDB.Ping(ctx).Result()
-		if err != nil {
-			FatalLog("Redis ping test failed: " + err.Error())
-		}
-		if DebugEnabled {
-			SysLog(fmt.Sprintf("Redis connected to %s", opt.Addr))
-			SysLog(fmt.Sprintf("Redis database: %d", opt.DB))
-		}
+	_, err = RDB.Ping(ctx).Result()
+	if err != nil {
+		FatalLog("Redis ping test failed: " + err.Error())
+	}
+	if DebugEnabled {
+		SysLog(fmt.Sprintf("Redis connected to %s", opt.Addr))
+		SysLog(fmt.Sprintf("Redis database: %d", opt.DB))
 	}
 	return err
 }
@@ -92,59 +59,6 @@ func ParseRedisOption() *redis.Options {
 		FatalLog("failed to parse Redis connection string: " + err.Error())
 	}
 	return opt
-}
-
-// parseCommaSeparated splits a comma-separated string into a slice
-func parseCommaSeparated(s string) []string {
-	var result []string
-	for _, addr := range splitString(s, ",") {
-		trimmed := trimSpace(addr)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
-
-// splitString splits a string by delimiter (simple implementation)
-func splitString(s, delim string) []string {
-	if s == "" {
-		return []string{}
-	}
-	var result []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if i+len(delim) <= len(s) && s[i:i+len(delim)] == delim {
-			result = append(result, s[start:i])
-			start = i + len(delim)
-			i += len(delim) - 1
-		}
-	}
-	result = append(result, s[start:])
-	return result
-}
-
-// trimSpace removes leading and trailing whitespace
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
-}
-
-// GetEnvOrDefaultInt returns environment variable as int or default value
-func GetEnvOrDefaultInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
 }
 
 func RedisSet(key string, value string, expiration time.Duration) error {
