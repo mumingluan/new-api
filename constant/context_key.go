@@ -72,4 +72,10 @@ const (
 	// and remember the key here so the middleware can roll it back if the request fails.
 	ContextKeyDailySuccessQuotaReserved ContextKey = "daily_success_quota_reserved"
 	ContextKeyDailySuccessQuotaKey      ContextKey = "daily_success_quota_key"
+
+	// ContextKeyAuditLogged marks that the current request has already recorded
+	// a manage/operation audit log inside the handler. When set, the admin-audit
+	// fallback in authHelper (finishAdminAudit) skips its record to avoid
+	// duplicate entries.
+	ContextKeyAuditLogged ContextKey = "audit_logged"
 )
