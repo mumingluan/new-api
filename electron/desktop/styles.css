@@ -102,6 +102,7 @@ small {
 }
 
 .instance-item {
+  display: block;
   width: 100%;
   min-width: 0;
   height: auto;

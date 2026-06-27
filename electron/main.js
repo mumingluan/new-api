@@ -662,10 +662,16 @@ function installEditContextMenu(win) {
   })
 }
 
+function setBusinessWindowTitle(win) {
+  if (!win || win.isDestroyed() || !win.__newApiContext) return
+  const context = win.__newApiContext
+  const flavorTitle = context.flavor === 'classic' ? 'Classic' : 'Default'
+  win.setTitle(`New API Desktop - ${flavorTitle} - ${context.instance.name}`)
+}
+
 async function createWindow(options = {}) {
   const context = createAppServerContext(options.instanceId, options.flavor || 'default')
   await startAppServer(context)
-  const flavorTitle = context.flavor === 'classic' ? 'Classic' : 'Default'
   const win = new BrowserWindow({
     width: options.bounds?.width || 1320,
     height: options.bounds?.height || 860,
@@ -674,7 +680,7 @@ async function createWindow(options = {}) {
     show: true,
     minWidth: 980,
     minHeight: 640,
-    title: `New API Desktop - ${flavorTitle} - ${context.instance.name}`,
+    title: 'New API Desktop',
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -688,9 +694,17 @@ async function createWindow(options = {}) {
   win.__newApiContext = context
   appWindows.add(win)
   mainWindow = win
+  setBusinessWindowTitle(win)
   installWindowShortcuts(win)
   installEditContextMenu(win)
   win.loadURL(getAppContextUrl(context))
+  win.webContents.on('page-title-updated', (event) => {
+    event.preventDefault()
+    setBusinessWindowTitle(win)
+  })
+  win.webContents.on('did-finish-load', () => {
+    setBusinessWindowTitle(win)
+  })
   if (options.maximized) {
     win.maximize()
   }
