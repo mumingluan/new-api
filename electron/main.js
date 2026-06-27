@@ -698,9 +698,8 @@ function createSettingsWindow() {
   }
   settingsWindow = new BrowserWindow({
     width: 560,
-    height: 760,
-    minWidth: 500,
-    minHeight: 560,
+    height: 820,
+    resizable: false,
     title: 'New API Desktop Settings',
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
@@ -828,13 +827,31 @@ async function refreshStatus() {
 }
 
 async function validateAccessToken(input) {
-  const draft = sanitizeInstance({ ...input, authMode: 'accessToken' })
+  const saved = input.id ? config.instances.find((item) => item.id === input.id) : null
+  const draft = sanitizeInstance({
+    ...(saved || {}),
+    ...input,
+    authMode: 'accessToken',
+    accessToken: String(input.accessToken || '').trim() || saved?.accessToken || '',
+  })
   if (!draft.baseUrl) throw new Error('Backend URL is required')
   if (!draft.accessToken) throw new Error('Access token is required')
   if (!draft.userId) throw new Error('User ID is required')
   const res = await requestBackend(draft, '/api/user/self')
   if (!res.data || res.data.success === false) throw new Error(res.data?.message || `Validation failed with HTTP ${res.statusCode}`)
   updateInstanceFromResponse(draft, res.body)
+  if (saved) {
+    Object.assign(saved, {
+      name: draft.name,
+      baseUrl: draft.baseUrl,
+      authMode: draft.authMode,
+      accessToken: draft.accessToken,
+      userId: draft.userId,
+      user: draft.user,
+      updatedAt: new Date().toISOString(),
+    })
+    saveConfig()
+  }
   return publicInstance(draft)
 }
 
