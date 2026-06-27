@@ -630,9 +630,9 @@ function createSettingsWindow() {
     return
   }
   settingsWindow = new BrowserWindow({
-    width: 480,
+    width: 560,
     height: 760,
-    minWidth: 420,
+    minWidth: 500,
     minHeight: 560,
     title: 'New API Desktop Settings',
     icon: path.join(__dirname, 'icon.png'),
