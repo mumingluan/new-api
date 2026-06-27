@@ -254,6 +254,10 @@ function getDesktopUrl() {
   return desktopServerPort ? `http://127.0.0.1:${desktopServerPort}/desktop/` : ''
 }
 
+function getDesktopSettingsUrl() {
+  return `${getDesktopUrl()}?v=desktop-settings-2`
+}
+
 function getContentType(filePath) {
   const ext = path.extname(filePath).toLowerCase()
   const map = {
@@ -307,9 +311,10 @@ function serveFile(res, root, requestPath, fallbackToIndex) {
       sendJson(res, 500, { success: false, message: err.message })
       return
     }
+    const isDesktopAsset = root === getDesktopRoot()
     res.writeHead(200, {
       'Content-Type': getContentType(filePath),
-      'Cache-Control': filePath.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000',
+      'Cache-Control': filePath.endsWith('index.html') || isDesktopAsset ? 'no-store' : 'public, max-age=31536000',
     })
     if (filePath.endsWith('index.html')) {
       res.end(injectDesktopBootstrap(content.toString('utf8'), root))
@@ -686,6 +691,7 @@ async function createWindow(options = {}) {
 
 function createSettingsWindow() {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.reloadIgnoringCache()
     settingsWindow.show()
     settingsWindow.focus()
     return
@@ -707,7 +713,10 @@ function createSettingsWindow() {
   })
   settingsWindow.setMenuBarVisibility(false)
   installWindowShortcuts(settingsWindow)
-  settingsWindow.loadURL(getDesktopUrl())
+  session.defaultSession.clearCache().catch((err) => {
+    console.error('Failed to clear desktop cache:', err)
+  })
+  settingsWindow.loadURL(getDesktopSettingsUrl())
   settingsWindow.on('closed', () => {
     settingsWindow = null
   })
@@ -858,7 +867,6 @@ function setupIpc() {
     config.activeInstanceId = instance.id
     config.activeFlavor = instance.flavor
     saveConfig()
-    refreshStatus()
     return getPublicConfig()
   })
   ipcMain.handle('desktop:delete-instance', (_event, id) => {
@@ -866,7 +874,6 @@ function setupIpc() {
     cookieJars.delete(id)
     if (config.activeInstanceId === id) config.activeInstanceId = config.instances[0]?.id || ''
     saveConfig()
-    refreshStatus()
     return getPublicConfig()
   })
   ipcMain.handle('desktop:set-active-instance', (_event, id) => {
@@ -875,7 +882,6 @@ function setupIpc() {
     const active = getActiveInstance()
     if (active?.flavor) config.activeFlavor = active.flavor
     saveConfig()
-    refreshStatus()
     return getPublicConfig()
   })
   ipcMain.handle('desktop:set-flavor', (_event, flavor) => {

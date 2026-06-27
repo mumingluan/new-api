@@ -19,17 +19,9 @@ const dict = {
     userId: 'User ID',
     token: 'Access token',
     tokenPlaceholder: 'Enter a new token to replace the saved one.',
-    frontend: 'Frontend',
-    defaultFrontend: 'Default frontend',
-    classicFrontend: 'Classic frontend',
     validate: 'Validate',
     save: 'Save',
     delete: 'Delete instance',
-    launch: 'Launch',
-    openDefault: 'Open default frontend',
-    openClassic: 'Open classic frontend',
-    refresh: 'Refresh status',
-    checkUpdates: 'Check updates',
     saved: 'Saved',
     validated: 'Token validated',
     noInstances: 'No instances yet.',
@@ -54,17 +46,9 @@ const dict = {
     userId: '用户 ID',
     token: 'Access token',
     tokenPlaceholder: '输入新 token 可替换已保存的 token。',
-    frontend: '前端',
-    defaultFrontend: '新版前端',
-    classicFrontend: '经典前端',
     validate: '验证',
     save: '保存',
     delete: '删除实例',
-    launch: '启动',
-    openDefault: '打开新版前端',
-    openClassic: '打开经典前端',
-    refresh: '刷新状态',
-    checkUpdates: '检查更新',
     saved: '已保存',
     validated: 'Token 验证通过',
     noInstances: '还没有实例。',
@@ -89,17 +73,9 @@ const dict = {
     userId: 'ID utilisateur',
     token: 'Access token',
     tokenPlaceholder: 'Saisissez un nouveau token pour remplacer celui enregistre.',
-    frontend: 'Frontend',
-    defaultFrontend: 'Frontend par defaut',
-    classicFrontend: 'Frontend classique',
     validate: 'Verifier',
     save: 'Enregistrer',
     delete: 'Supprimer l’instance',
-    launch: 'Lancer',
-    openDefault: 'Ouvrir le frontend par defaut',
-    openClassic: 'Ouvrir le frontend classique',
-    refresh: 'Actualiser',
-    checkUpdates: 'Mises a jour',
     saved: 'Enregistre',
     validated: 'Token valide',
     noInstances: 'Aucune instance.',
@@ -124,17 +100,9 @@ const dict = {
     userId: 'ユーザー ID',
     token: 'Access token',
     tokenPlaceholder: '保存済み token を置き換える場合のみ入力します。',
-    frontend: 'フロントエンド',
-    defaultFrontend: 'デフォルト版',
-    classicFrontend: 'クラシック版',
     validate: '検証',
     save: '保存',
     delete: 'インスタンスを削除',
-    launch: '起動',
-    openDefault: 'デフォルト版を開く',
-    openClassic: 'クラシック版を開く',
-    refresh: '状態更新',
-    checkUpdates: '更新確認',
     saved: '保存しました',
     validated: 'Token を検証しました',
     noInstances: 'インスタンスはありません。',
@@ -159,17 +127,9 @@ const dict = {
     userId: 'ID пользователя',
     token: 'Access token',
     tokenPlaceholder: 'Введите новый token, чтобы заменить сохраненный.',
-    frontend: 'Frontend',
-    defaultFrontend: 'Новый frontend',
-    classicFrontend: 'Классический frontend',
     validate: 'Проверить',
     save: 'Сохранить',
     delete: 'Удалить экземпляр',
-    launch: 'Запуск',
-    openDefault: 'Открыть новый frontend',
-    openClassic: 'Открыть классический frontend',
-    refresh: 'Обновить',
-    checkUpdates: 'Проверить обновления',
     saved: 'Сохранено',
     validated: 'Token проверен',
     noInstances: 'Экземпляров пока нет.',
@@ -194,17 +154,9 @@ const dict = {
     userId: 'ID nguoi dung',
     token: 'Access token',
     tokenPlaceholder: 'Nhap token moi de thay the token da luu.',
-    frontend: 'Frontend',
-    defaultFrontend: 'Frontend moi',
-    classicFrontend: 'Frontend co dien',
     validate: 'Kiem tra',
     save: 'Luu',
     delete: 'Xoa phien ban',
-    launch: 'Mo',
-    openDefault: 'Mo frontend moi',
-    openClassic: 'Mo frontend co dien',
-    refresh: 'Lam moi',
-    checkUpdates: 'Kiem tra cap nhat',
     saved: 'Da luu',
     validated: 'Token hop le',
     noInstances: 'Chua co phien ban.',
@@ -290,7 +242,6 @@ function emptyForm() {
   $('authMode').value = 'interactive'
   $('userId').value = ''
   $('accessToken').value = ''
-  $('flavor').value = 'default'
 }
 
 function selectInstance(id) {
@@ -306,7 +257,6 @@ function selectInstance(id) {
     $('userId').value = item.userId || ''
     $('accessToken').value = ''
     $('accessToken').placeholder = item.hasAccessToken ? tr('tokenPlaceholder') : ''
-    $('flavor').value = item.flavor || config.activeFlavor || 'default'
   }
   updateMode()
   renderInstances()
@@ -327,7 +277,6 @@ function formValue() {
     authMode: $('authMode').value,
     userId: $('userId').value,
     accessToken: $('accessToken').value,
-    flavor: $('flavor').value,
   }
 }
 
@@ -342,7 +291,6 @@ async function load() {
   applyI18n()
   renderInstances()
   selectInstance(selectedId)
-  if (config.status?.message) setStatus(`${config.status.ok ? tr('ok') : tr('error')}: ${config.status.message}`)
 }
 
 $('language').addEventListener('change', async () => {
@@ -391,24 +339,6 @@ $('deleteInstance').addEventListener('click', async () => {
   config = await api.deleteInstance($('id').value)
   selectedId = config.activeInstanceId || config.instances[0]?.id || ''
   await load()
-})
-
-$('openDefault').addEventListener('click', () => {
-  if (selectedId) api.openWindow({ instanceId: selectedId, flavor: 'default' })
-})
-
-$('openClassic').addEventListener('click', () => {
-  if (selectedId) api.openWindow({ instanceId: selectedId, flavor: 'classic' })
-})
-
-$('refreshStatus').addEventListener('click', async () => {
-  const status = await api.refreshStatus()
-  setStatus(`${status.ok ? tr('ok') : tr('error')}: ${status.message}`)
-})
-
-$('checkUpdates').addEventListener('click', async () => {
-  const status = await api.checkForUpdates()
-  setStatus(`${status.ok ? tr('ok') : tr('error')}: ${status.message}`)
 })
 
 api.onConfigChanged((next) => {

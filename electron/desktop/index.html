@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>New API Desktop</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=desktop-settings-2" />
   </head>
   <body>
     <main class="shell">
@@ -53,36 +53,15 @@
             <span data-i18n="token">Access token</span>
             <input id="accessToken" type="password" autocomplete="off" data-i18n-placeholder="tokenPlaceholder" />
           </label>
-          <label>
-            <span data-i18n="frontend">Frontend</span>
-            <select id="flavor">
-              <option value="default" data-i18n="defaultFrontend">Default frontend</option>
-              <option value="classic" data-i18n="classicFrontend">Classic frontend</option>
-            </select>
-          </label>
           <div class="actions">
             <button id="validate" type="button" data-i18n="validate">Validate</button>
             <button type="submit" data-i18n="save">Save</button>
           </div>
           <button id="deleteInstance" class="danger" type="button" data-i18n="delete">Delete instance</button>
+          <p id="status" class="status"></p>
         </form>
       </section>
-
-      <section class="panel">
-        <div class="panel-title">
-          <h2 data-i18n="launch">Launch</h2>
-        </div>
-        <div class="split">
-          <button id="openDefault" type="button" data-i18n="openDefault">Open default frontend</button>
-          <button id="openClassic" type="button" data-i18n="openClassic">Open classic frontend</button>
-        </div>
-        <div class="split">
-          <button id="refreshStatus" type="button" data-i18n="refresh">Refresh status</button>
-          <button id="checkUpdates" type="button" data-i18n="checkUpdates">Check updates</button>
-        </div>
-        <p id="status" class="status"></p>
-      </section>
     </main>
-    <script src="./renderer.js"></script>
+    <script src="./renderer.js?v=desktop-settings-2"></script>
   </body>
 </html>
