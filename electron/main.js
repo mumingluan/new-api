@@ -23,6 +23,8 @@ let desktopServerPort = 0
 let configPath = ''
 let config = createDefaultConfig()
 let lastStatus = { ok: false, message: 'Not checked', checkedAt: null }
+let restoringWindows = false
+let openWindowsSaveTimer = null
 
 const appServers = new Map()
 const appWindows = new Set()
@@ -113,6 +115,7 @@ function createDefaultConfig() {
     desktopLanguage: 'auto',
     autoRefreshStatus: true,
     updateFeedUrl: '',
+    openWindows: [],
     instances: [],
   }
 }
@@ -179,6 +182,12 @@ function loadConfig() {
     }
     if (!config.activeInstanceId && config.instances[0]) config.activeInstanceId = config.instances[0].id
     if (!['default', 'classic'].includes(config.activeFlavor)) config.activeFlavor = 'default'
+    config.openWindows = Array.isArray(parsed.openWindows)
+      ? parsed.openWindows.filter((item) => item && item.instanceId && ['default', 'classic'].includes(item.flavor))
+      : []
+    if (!parsed.openWindows && config.activeInstanceId) {
+      config.openWindows = [{ instanceId: config.activeInstanceId, flavor: config.activeFlavor }]
+    }
   } catch (err) {
     console.error('Failed to load desktop config:', err)
     config = createDefaultConfig()
@@ -224,8 +233,11 @@ function getPublicConfig() {
 
 function broadcastConfig() {
   const payload = getPublicConfig()
-  for (const win of [settingsWindow, mainWindow]) {
-    if (win && !win.isDestroyed()) win.webContents.send('desktop-config-changed', payload)
+  const windows = [settingsWindow, ...appWindows]
+  for (const win of windows) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('desktop-config-changed', payload)
+    }
   }
 }
 
@@ -533,6 +545,51 @@ function getAppContextUrl(context) {
   return `http://127.0.0.1:${context.port}/`
 }
 
+function getOpenWindowState(win) {
+  if (!win || win.isDestroyed() || !win.__newApiContext) return null
+  const context = win.__newApiContext
+  return {
+    instanceId: context.instance.id,
+    flavor: context.flavor,
+    bounds: win.getBounds(),
+    maximized: win.isMaximized(),
+  }
+}
+
+function saveOpenWindows() {
+  config.openWindows = Array.from(appWindows)
+    .map(getOpenWindowState)
+    .filter(Boolean)
+  saveConfig()
+}
+
+function scheduleOpenWindowsSave() {
+  if (restoringWindows || app.isQuitting) return
+  if (openWindowsSaveTimer) clearTimeout(openWindowsSaveTimer)
+  openWindowsSaveTimer = setTimeout(() => {
+    openWindowsSaveTimer = null
+    saveOpenWindows()
+  }, 300)
+}
+
+async function restoreOpenWindows() {
+  const restored = []
+  restoringWindows = true
+  try {
+    for (const item of config.openWindows) {
+      if (!config.instances.some((instance) => instance.id === item.instanceId)) continue
+      try {
+        restored.push(await createWindow(item))
+      } catch (err) {
+        console.error('Failed to restore desktop window:', err)
+      }
+    }
+  } finally {
+    restoringWindows = false
+  }
+  return restored
+}
+
 function startDesktopServer() {
   return new Promise((resolve, reject) => {
     desktopServer = http.createServer((req, res) => {
@@ -581,11 +638,14 @@ function installWindowShortcuts(win) {
 }
 
 async function createWindow(options = {}) {
-  const context = createAppServerContext(options.instanceId || config.activeInstanceId, options.flavor || config.activeFlavor)
+  const context = createAppServerContext(options.instanceId, options.flavor || 'default')
   await startAppServer(context)
   const win = new BrowserWindow({
-    width: 1320,
-    height: 860,
+    width: options.bounds?.width || 1320,
+    height: options.bounds?.height || 860,
+    x: options.bounds?.x,
+    y: options.bounds?.y,
+    show: true,
     minWidth: 980,
     minHeight: 640,
     title: `${context.flavor === 'classic' ? 'Classic' : 'Default'} - ${context.instance.name}`,
@@ -604,22 +664,23 @@ async function createWindow(options = {}) {
   mainWindow = win
   installWindowShortcuts(win)
   win.loadURL(getAppContextUrl(context))
+  if (options.maximized) {
+    win.maximize()
+  }
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(getAppContextUrl(context)) || url.startsWith(getDesktopUrl())) return { action: 'allow' }
     shell.openExternal(url)
     return { action: 'deny' }
   })
-  win.on('close', (event) => {
-    if (!app.isQuitting) {
-      event.preventDefault()
-      win.hide()
-    }
-  })
+  win.on('move', scheduleOpenWindowsSave)
+  win.on('resize', scheduleOpenWindowsSave)
   win.on('closed', () => {
     appWindows.delete(win)
     stopAppServer(context)
     if (mainWindow === win) mainWindow = Array.from(appWindows).find((item) => !item.isDestroyed()) || null
+    scheduleOpenWindowsSave()
   })
+  scheduleOpenWindowsSave()
   return win
 }
 
@@ -653,15 +714,13 @@ function createSettingsWindow() {
 }
 
 function showMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    createWindow().catch((err) => {
-      createSettingsWindow()
-      dialog.showErrorBox('New API Desktop', err.message)
-    })
+  const windows = Array.from(appWindows).filter((win) => !win.isDestroyed())
+  if (windows.length === 0) {
+    createSettingsWindow()
     return
   }
-  mainWindow.show()
-  mainWindow.focus()
+  for (const win of windows) win.show()
+  windows[windows.length - 1].focus()
 }
 
 function createTray() {
@@ -671,33 +730,22 @@ function createTray() {
       : path.join(__dirname, 'tray-icon-windows.png')
   tray = new Tray(icon)
   tray.setToolTip('New API Desktop')
-  tray.on('click', showMainWindow)
+  tray.on('click', createSettingsWindow)
   updateTrayMenu()
 }
 
 function updateTrayMenu() {
   if (!tray) return
-  const active = getActiveInstance()
   const launchItems = (flavor) =>
     config.instances.map((item) => ({
       label: item.name,
       click: () => {
-        config.activeInstanceId = item.id
-        config.activeFlavor = flavor
-        item.flavor = flavor
-        item.updatedAt = new Date().toISOString()
-        saveConfig()
         createWindow({ instanceId: item.id, flavor }).catch((err) => dialog.showErrorBox('New API Desktop', err.message))
-        refreshStatus()
       },
     }))
   const hasInstances = config.instances.length > 0
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: active ? `${t('Backend')}: ${active.name}` : t('No backend configured'), enabled: false },
-      { label: lastStatus.ok ? `${t('Status')}: ${t('Online')}` : `${t('Status')}: ${lastStatus.message}`, enabled: false },
-      { type: 'separator' },
-      { label: t('Show'), click: showMainWindow },
       { label: t('Settings'), click: createSettingsWindow },
       { label: t('Launch Default Frontend'), enabled: hasInstances, submenu: launchItems('default') },
       { label: t('Launch Classic Frontend'), enabled: hasInstances, submenu: launchItems('classic') },
@@ -872,10 +920,10 @@ app.whenReady().then(async () => {
   })
   await startDesktopServer()
   createTray()
-  if (getActiveInstance()) await createWindow()
-  else createSettingsWindow()
-  refreshStatus()
-  if (config.autoRefreshStatus) setInterval(refreshStatus, 60000)
+  const restored = await restoreOpenWindows()
+  if (restored.length === 0) {
+    createSettingsWindow()
+  }
 })
 
 app.on('activate', showMainWindow)
@@ -886,6 +934,11 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   app.isQuitting = true
+  if (openWindowsSaveTimer) {
+    clearTimeout(openWindowsSaveTimer)
+    openWindowsSaveTimer = null
+  }
+  saveOpenWindows()
   for (const context of appServers.values()) stopAppServer(context)
   if (desktopServer) desktopServer.close()
 })
