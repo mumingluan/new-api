@@ -106,7 +106,7 @@ small {
   min-width: 0;
   height: auto;
   text-align: left;
-  padding: 9px 10px;
+  padding: 11px 12px;
   border: 1px solid var(--line);
   background: var(--field);
   color: var(--text);
@@ -127,8 +127,13 @@ small {
   white-space: nowrap;
 }
 
+.instance-item strong {
+  line-height: 1.35;
+}
+
 .instance-item small {
-  margin-top: 3px;
+  margin-top: 6px;
+  line-height: 1.35;
 }
 
 .form {

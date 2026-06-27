@@ -642,9 +642,30 @@ function installWindowShortcuts(win) {
   })
 }
 
+function installEditContextMenu(win) {
+  win.webContents.on('context-menu', (_event, params) => {
+    const template = []
+    if (params.selectionText) {
+      template.push({ role: 'copy', label: 'Copy' })
+    }
+    if (params.isEditable) {
+      if (template.length) template.push({ type: 'separator' })
+      template.push(
+        { role: 'cut', label: 'Cut' },
+        { role: 'copy', label: 'Copy' },
+        { role: 'paste', label: 'Paste' },
+        { role: 'selectAll', label: 'Select All' },
+      )
+    }
+    if (!template.length) return
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
+}
+
 async function createWindow(options = {}) {
   const context = createAppServerContext(options.instanceId, options.flavor || 'default')
   await startAppServer(context)
+  const flavorTitle = context.flavor === 'classic' ? 'Classic' : 'Default'
   const win = new BrowserWindow({
     width: options.bounds?.width || 1320,
     height: options.bounds?.height || 860,
@@ -653,7 +674,7 @@ async function createWindow(options = {}) {
     show: true,
     minWidth: 980,
     minHeight: 640,
-    title: `${context.flavor === 'classic' ? 'Classic' : 'Default'} - ${context.instance.name}`,
+    title: `New API Desktop - ${flavorTitle} - ${context.instance.name}`,
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -668,6 +689,7 @@ async function createWindow(options = {}) {
   appWindows.add(win)
   mainWindow = win
   installWindowShortcuts(win)
+  installEditContextMenu(win)
   win.loadURL(getAppContextUrl(context))
   if (options.maximized) {
     win.maximize()
@@ -755,6 +777,7 @@ function updateTrayMenu() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: t('Settings'), click: createSettingsWindow },
+      { type: 'separator' },
       { label: t('Launch Default Frontend'), enabled: hasInstances, submenu: launchItems('default') },
       { label: t('Launch Classic Frontend'), enabled: hasInstances, submenu: launchItems('classic') },
       { type: 'separator' },
