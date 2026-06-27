@@ -1,590 +1,891 @@
-const { app, BrowserWindow, dialog, Tray, Menu, shell } = require('electron');
-const { spawn } = require('child_process');
-const path = require('path');
-const http = require('http');
-const fs = require('fs');
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  session,
+  shell,
+  Tray,
+} = require('electron')
+const fs = require('fs')
+const http = require('http')
+const https = require('https')
+const path = require('path')
+const { URL } = require('url')
 
-let mainWindow;
-let serverProcess;
-let tray = null;
-let serverErrorLogs = [];
-const PORT = 3000;
-const DEV_FRONTEND_PORT = 5173; // Vite dev server port
+let mainWindow
+let settingsWindow
+let tray
+let desktopServer
+let desktopServerPort = 0
+let configPath = ''
+let config = createDefaultConfig()
+let lastStatus = { ok: false, message: 'Not checked', checkedAt: null }
 
-// 保存日志到文件并打开
-function saveAndOpenErrorLog() {
+const appServers = new Map()
+const appWindows = new Set()
+const cookieJars = new Map()
+const preferredDesktopPort = Number(process.env.NEW_API_DESKTOP_PORT || 32176)
+const supportedLanguages = ['en', 'zh', 'fr', 'ja', 'ru', 'vi']
+const proxyPrefixes = ['/api', '/mj', '/pg', '/v1', '/v1beta', '/dashboard', '/swagger']
+
+const messages = {
+  en: {
+    Backend: 'Backend',
+    Settings: 'Settings',
+    Show: 'Show',
+    Quit: 'Quit',
+    Status: 'Status',
+    Online: 'Online',
+    Offline: 'Offline',
+    'No backend configured': 'No backend configured',
+    'Launch Default Frontend': 'Launch Default Frontend',
+    'Launch Classic Frontend': 'Launch Classic Frontend',
+  },
+  zh: {
+    Backend: '后端',
+    Settings: '设置',
+    Show: '显示',
+    Quit: '退出',
+    Status: '状态',
+    Online: '在线',
+    Offline: '离线',
+    'No backend configured': '未配置后端',
+    'Launch Default Frontend': '启动 新版前端',
+    'Launch Classic Frontend': '启动 经典前端',
+  },
+  fr: {
+    Backend: 'Backend',
+    Settings: 'Parametres',
+    Show: 'Afficher',
+    Quit: 'Quitter',
+    Status: 'Statut',
+    Online: 'En ligne',
+    Offline: 'Hors ligne',
+    'No backend configured': 'Aucun backend configure',
+    'Launch Default Frontend': 'Lancer le frontend par defaut',
+    'Launch Classic Frontend': 'Lancer le frontend classique',
+  },
+  ja: {
+    Backend: 'バックエンド',
+    Settings: '設定',
+    Show: '表示',
+    Quit: '終了',
+    Status: '状態',
+    Online: 'オンライン',
+    Offline: 'オフライン',
+    'No backend configured': 'バックエンド未設定',
+    'Launch Default Frontend': 'デフォルトフロントエンドを起動',
+    'Launch Classic Frontend': 'クラシックフロントエンドを起動',
+  },
+  ru: {
+    Backend: 'Backend',
+    Settings: 'Настройки',
+    Show: 'Показать',
+    Quit: 'Выход',
+    Status: 'Статус',
+    Online: 'В сети',
+    Offline: 'Не в сети',
+    'No backend configured': 'Backend не настроен',
+    'Launch Default Frontend': 'Запустить frontend по умолчанию',
+    'Launch Classic Frontend': 'Запустить классический frontend',
+  },
+  vi: {
+    Backend: 'Backend',
+    Settings: 'Cai dat',
+    Show: 'Hien thi',
+    Quit: 'Thoat',
+    Status: 'Trang thai',
+    Online: 'Truc tuyen',
+    Offline: 'Ngoai tuyen',
+    'No backend configured': 'Chua cau hinh backend',
+    'Launch Default Frontend': 'Mo frontend mac dinh',
+    'Launch Classic Frontend': 'Mo frontend co dien',
+  },
+}
+
+function createDefaultConfig() {
+  return {
+    activeInstanceId: '',
+    activeFlavor: 'default',
+    desktopLanguage: 'auto',
+    autoRefreshStatus: true,
+    updateFeedUrl: '',
+    instances: [],
+  }
+}
+
+function createId() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`
+}
+
+function resolveLanguage(value) {
+  if (value && value !== 'auto') return supportedLanguages.includes(value) ? value : 'en'
+  const locale = (app.getLocale ? app.getLocale() : 'en').toLowerCase()
+  if (locale.startsWith('zh')) return 'zh'
+  const short = locale.slice(0, 2)
+  return supportedLanguages.includes(short) ? short : 'en'
+}
+
+function t(key) {
+  const language = resolveLanguage(config.desktopLanguage)
+  return messages[language]?.[key] || messages.en[key] || key
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
   try {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const logFileName = `new-api-crash-${timestamp}.log`;
-    const logDir = app.getPath('logs');
-    const logFilePath = path.join(logDir, logFileName);
-    
-    // 确保日志目录存在
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
+    const url = new URL(raw.startsWith('http') ? raw : `https://${raw}`)
+    url.pathname = url.pathname.replace(/\/+$/, '')
+    url.search = ''
+    url.hash = ''
+    return url.toString().replace(/\/+$/, '')
+  } catch {
+    return ''
+  }
+}
+
+function sanitizeInstance(input = {}) {
+  const now = new Date().toISOString()
+  const baseUrl = normalizeBaseUrl(input.baseUrl)
+  return {
+    id: input.id || createId(),
+    name: String(input.name || '').trim() || baseUrl || 'New API backend',
+    baseUrl,
+    authMode: input.authMode === 'accessToken' ? 'accessToken' : 'interactive',
+    accessToken: String(input.accessToken || '').trim(),
+    userId: String(input.userId || '').trim(),
+    flavor: input.flavor === 'classic' ? 'classic' : 'default',
+    user: input.user && typeof input.user === 'object' ? input.user : null,
+    createdAt: input.createdAt || now,
+    updatedAt: now,
+  }
+}
+
+function loadConfig() {
+  configPath = path.join(app.getPath('userData'), 'desktop-config.json')
+  try {
+    if (!fs.existsSync(configPath)) return
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    config = {
+      ...createDefaultConfig(),
+      ...parsed,
+      instances: Array.isArray(parsed.instances)
+        ? parsed.instances.map(sanitizeInstance).filter((item) => item.baseUrl)
+        : [],
     }
-    
-    // 写入日志
-    const logContent = `New API 崩溃日志
-生成时间: ${new Date().toLocaleString('zh-CN')}
-平台: ${process.platform}
-架构: ${process.arch}
-应用版本: ${app.getVersion()}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-完整错误日志:
-
-${serverErrorLogs.join('\n')}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-日志文件位置: ${logFilePath}
-`;
-    
-    fs.writeFileSync(logFilePath, logContent, 'utf8');
-    
-    // 打开日志文件
-    shell.openPath(logFilePath).then((error) => {
-      if (error) {
-        console.error('Failed to open log file:', error);
-        // 如果打开文件失败，至少显示文件位置
-        shell.showItemInFolder(logFilePath);
-      }
-    });
-    
-    return logFilePath;
+    if (!config.activeInstanceId && config.instances[0]) config.activeInstanceId = config.instances[0].id
+    if (!['default', 'classic'].includes(config.activeFlavor)) config.activeFlavor = 'default'
   } catch (err) {
-    console.error('Failed to save error log:', err);
-    return null;
+    console.error('Failed to load desktop config:', err)
+    config = createDefaultConfig()
   }
 }
 
-// 分析错误日志，识别常见错误并提供解决方案
-function analyzeError(errorLogs) {
-  const allLogs = errorLogs.join('\n');
-  
-  // 检测端口占用错误
-  if (allLogs.includes('failed to start HTTP server') || 
-      allLogs.includes('bind: address already in use') ||
-      allLogs.includes('listen tcp') && allLogs.includes('bind: address already in use')) {
-    return {
-      type: '端口被占用',
-      title: '端口 ' + PORT + ' 被占用',
-      message: '无法启动服务器，端口已被其他程序占用',
-      solution: `可能的解决方案：\n\n1. 关闭占用端口 ${PORT} 的其他程序\n2. 检查是否已经运行了另一个 New API 实例\n3. 使用以下命令查找占用端口的进程：\n   Mac/Linux: lsof -i :${PORT}\n   Windows: netstat -ano | findstr :${PORT}\n4. 重启电脑以释放端口`
-    };
-  }
-  
-  // 检测数据库错误
-  if (allLogs.includes('database is locked') || 
-      allLogs.includes('unable to open database')) {
-    return {
-      type: '数据文件被占用',
-      title: '无法访问数据文件',
-      message: '应用的数据文件正被其他程序占用',
-      solution: '可能的解决方案：\n\n1. 检查是否已经打开了另一个 New API 窗口\n   - 查看任务栏/Dock 中是否有其他 New API 图标\n   - 查看系统托盘（Windows）或菜单栏（Mac）中是否有 New API 图标\n\n2. 如果刚刚关闭过应用，请等待 10 秒后再试\n\n3. 重启电脑以释放被占用的文件\n\n4. 如果问题持续，可以尝试：\n   - 退出所有 New API 实例\n   - 删除数据目录中的临时文件（.db-shm 和 .db-wal）\n   - 重新启动应用'
-    };
-  }
-  
-  // 检测权限错误
-  if (allLogs.includes('permission denied') || 
-      allLogs.includes('access denied')) {
-    return {
-      type: '权限错误',
-      title: '权限不足',
-      message: '程序没有足够的权限执行操作',
-      solution: '可能的解决方案：\n\n1. 以管理员/root权限运行程序\n2. 检查数据目录的读写权限\n3. 检查可执行文件的权限\n4. 在 Mac 上，检查安全性与隐私设置'
-    };
-  }
-  
-  // 检测网络错误
-  if (allLogs.includes('network is unreachable') || 
-      allLogs.includes('no such host') ||
-      allLogs.includes('connection refused')) {
-    return {
-      type: '网络错误',
-      title: '网络连接失败',
-      message: '无法建立网络连接',
-      solution: '可能的解决方案：\n\n1. 检查网络连接是否正常\n2. 检查防火墙设置\n3. 检查代理配置\n4. 确认目标服务器地址正确'
-    };
-  }
-  
-  // 检测配置文件错误
-  if (allLogs.includes('invalid configuration') || 
-      allLogs.includes('failed to parse config') ||
-      allLogs.includes('yaml') || allLogs.includes('json') && allLogs.includes('parse')) {
-    return {
-      type: '配置错误',
-      title: '配置文件错误',
-      message: '配置文件格式不正确或包含无效配置',
-      solution: '可能的解决方案：\n\n1. 检查配置文件格式是否正确\n2. 恢复默认配置\n3. 删除配置文件让程序重新生成\n4. 查看文档了解正确的配置格式'
-    };
-  }
-  
-  // 检测内存不足
-  if (allLogs.includes('out of memory') || 
-      allLogs.includes('cannot allocate memory')) {
-    return {
-      type: '内存不足',
-      title: '系统内存不足',
-      message: '程序运行时内存不足',
-      solution: '可能的解决方案：\n\n1. 关闭其他占用内存的程序\n2. 增加系统可用内存\n3. 重启电脑释放内存\n4. 检查是否存在内存泄漏'
-    };
-  }
-  
-  // 检测文件不存在错误
-  if (allLogs.includes('no such file or directory') || 
-      allLogs.includes('cannot find the file')) {
-    return {
-      type: '文件缺失',
-      title: '找不到必需的文件',
-      message: '缺少程序运行所需的文件',
-      solution: '可能的解决方案：\n\n1. 重新安装应用程序\n2. 检查安装目录是否完整\n3. 确保所有依赖文件都存在\n4. 检查文件路径是否正确'
-    };
-  }
-  
-  return null;
+function saveConfig() {
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8')
+  updateTrayMenu()
+  broadcastConfig()
 }
 
-function getBinaryPath() {
-  const isDev = process.env.NODE_ENV === 'development';
-  const platform = process.platform;
-
-  if (isDev) {
-    const binaryName = platform === 'win32' ? 'new-api.exe' : 'new-api';
-    return path.join(__dirname, '..', binaryName);
-  }
-
-  let binaryName;
-  switch (platform) {
-    case 'win32':
-      binaryName = 'new-api.exe';
-      break;
-    case 'darwin':
-      binaryName = 'new-api';
-      break;
-    case 'linux':
-      binaryName = 'new-api';
-      break;
-    default:
-      binaryName = 'new-api';
-  }
-
-  return path.join(process.resourcesPath, 'bin', binaryName);
+function maskSecret(value) {
+  if (!value) return ''
+  if (value.length <= 10) return '********'
+  return `${value.slice(0, 5)}...${value.slice(-4)}`
 }
 
-// Check if a server is available with retry logic
-function checkServerAvailability(port, maxRetries = 30, retryDelay = 1000) {
-  return new Promise((resolve, reject) => {
-    let currentAttempt = 0;
-    
-    const tryConnect = () => {
-      currentAttempt++;
-      
-      if (currentAttempt % 5 === 1 && currentAttempt > 1) {
-        console.log(`Attempting to connect to port ${port}... (attempt ${currentAttempt}/${maxRetries})`);
-      }
-      
-      const req = http.get({
-        hostname: '127.0.0.1', // Use IPv4 explicitly instead of 'localhost' to avoid IPv6 issues
-        port: port,
-        timeout: 10000
-      }, (res) => {
-        // Server responded, connection successful
-        req.destroy();
-        console.log(`✓ Successfully connected to port ${port} (status: ${res.statusCode})`);
-        resolve();
-      });
-
-      req.on('error', (err) => {
-        if (currentAttempt >= maxRetries) {
-          reject(new Error(`Failed to connect to port ${port} after ${maxRetries} attempts: ${err.message}`));
-        } else {
-          setTimeout(tryConnect, retryDelay);
-        }
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        if (currentAttempt >= maxRetries) {
-          reject(new Error(`Connection timeout on port ${port} after ${maxRetries} attempts`));
-        } else {
-          setTimeout(tryConnect, retryDelay);
-        }
-      });
-    };
-    
-    tryConnect();
-  });
+function getActiveInstance() {
+  return config.instances.find((item) => item.id === config.activeInstanceId) || null
 }
 
-function startServer() {
-  return new Promise((resolve, reject) => {
-    const isDev = process.env.NODE_ENV === 'development';
+function publicInstance(instance) {
+  if (!instance) return null
+  return {
+    ...instance,
+    accessToken: instance.accessToken ? maskSecret(instance.accessToken) : '',
+    hasAccessToken: Boolean(instance.accessToken),
+  }
+}
 
-    const userDataPath = app.getPath('userData');
-    const dataDir = path.join(userDataPath, 'data');
-    
-    // 设置环境变量供 preload.js 使用
-    process.env.ELECTRON_DATA_DIR = dataDir;
-    
-    if (isDev) {
-      // 开发模式：假设开发者手动启动了 Go 后端和前端开发服务器
-      // 只需要等待前端开发服务器就绪
-      console.log('Development mode: skipping server startup');
-      console.log('Please make sure you have started:');
-      console.log('  1. Go backend: go run main.go (port 3000)');
-      console.log('  2. Frontend dev server: cd web && bun dev (port 5173)');
-      console.log('');
-      console.log('Checking if servers are running...');
-      
-      // First check if both servers are accessible
-      checkServerAvailability(DEV_FRONTEND_PORT)
-        .then(() => {
-          console.log('✓ Frontend dev server is accessible on port 5173');
-          resolve();
-        })
-        .catch((err) => {
-          console.error(`✗ Cannot connect to frontend dev server on port ${DEV_FRONTEND_PORT}`);
-          console.error('Please make sure the frontend dev server is running:');
-          console.error('  cd web && bun dev');
-          reject(err);
-        });
-      return;
+function getPublicConfig() {
+  return {
+    ...config,
+    instances: config.instances.map(publicInstance),
+    activeInstance: publicInstance(getActiveInstance()),
+    desktopUrl: getDesktopUrl(),
+    appLocale: app.getLocale ? app.getLocale() : 'en',
+    status: lastStatus,
+  }
+}
+
+function broadcastConfig() {
+  const payload = getPublicConfig()
+  for (const win of [settingsWindow, mainWindow]) {
+    if (win && !win.isDestroyed()) win.webContents.send('desktop-config-changed', payload)
+  }
+}
+
+function getFrontendDist(flavor) {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'web', flavor, 'dist')
+  return path.join(__dirname, '..', 'web', flavor, 'dist')
+}
+
+function getDesktopRoot() {
+  return path.join(__dirname, 'desktop')
+}
+
+function getDesktopUrl() {
+  return desktopServerPort ? `http://127.0.0.1:${desktopServerPort}/desktop/` : ''
+}
+
+function getContentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  const map = {
+    '.css': 'text/css; charset=utf-8',
+    '.gif': 'image/gif',
+    '.html': 'text/html; charset=utf-8',
+    '.ico': 'image/x-icon',
+    '.js': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.txt': 'text/plain; charset=utf-8',
+    '.webp': 'image/webp',
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
+function sendJson(res, status, payload) {
+  const body = JSON.stringify(payload)
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Length': Buffer.byteLength(body),
+  })
+  res.end(body)
+}
+
+function serveFile(res, root, requestPath, fallbackToIndex) {
+  let decodedPath
+  try {
+    decodedPath = decodeURIComponent(requestPath.split('?')[0])
+  } catch {
+    sendJson(res, 400, { success: false, message: 'Invalid path' })
+    return
+  }
+  const normalized = path.normalize(decodedPath).replace(/^(\.\.[\\/])+/, '')
+  let filePath = path.join(root, normalized)
+  if (!filePath.startsWith(root)) {
+    sendJson(res, 403, { success: false, message: 'Forbidden' })
+    return
+  }
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    if (!fallbackToIndex) {
+      sendJson(res, 404, { success: false, message: 'Not found' })
+      return
     }
-
-    // 生产模式：启动二进制服务器
-    const env = { ...process.env, PORT: PORT.toString() };
-
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    filePath = path.join(root, 'index.html')
+  }
+  fs.readFile(filePath, (err, content) => {
+    if (err) {
+      sendJson(res, 500, { success: false, message: err.message })
+      return
     }
+    res.writeHead(200, {
+      'Content-Type': getContentType(filePath),
+      'Cache-Control': filePath.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000',
+    })
+    if (filePath.endsWith('index.html')) {
+      res.end(injectDesktopBootstrap(content.toString('utf8'), root))
+    } else {
+      res.end(content)
+    }
+  })
+}
 
-    env.SQLITE_PATH = path.join(dataDir, 'new-api.db');
-    
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📁 您的数据存储位置：');
-    console.log('   ' + dataDir);
-    console.log('   💡 备份提示：复制此目录即可备份所有数据');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    const binaryPath = getBinaryPath();
-    const workingDir = process.resourcesPath;
-    
-    console.log('Starting server from:', binaryPath);
-
-    serverProcess = spawn(binaryPath, [], {
-      env,
-      cwd: workingDir
-    });
-
-    serverProcess.stdout.on('data', (data) => {
-      console.log(`Server: ${data}`);
-    });
-
-    serverProcess.stderr.on('data', (data) => {
-      const errorMsg = data.toString();
-      console.error(`Server Error: ${errorMsg}`);
-      serverErrorLogs.push(errorMsg);
-      // 只保留最近的100条错误日志
-      if (serverErrorLogs.length > 100) {
-        serverErrorLogs.shift();
-      }
-    });
-
-    serverProcess.on('error', (err) => {
-      console.error('Failed to start server:', err);
-      reject(err);
-    });
-
-    serverProcess.on('close', (code) => {
-      console.log(`Server process exited with code ${code}`);
-      
-      // 如果退出代码不是0，说明服务器异常退出
-      if (code !== 0 && code !== null) {
-        const errorDetails = serverErrorLogs.length > 0 
-          ? serverErrorLogs.slice(-20).join('\n') 
-          : '没有捕获到错误日志';
-        
-        // 分析错误类型
-        const knownError = analyzeError(serverErrorLogs);
-        
-        let dialogOptions;
-        if (knownError) {
-          // 识别到已知错误，显示友好的错误信息和解决方案
-          dialogOptions = {
-            type: 'error',
-            title: knownError.title,
-            message: knownError.message,
-            detail: `${knownError.solution}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n退出代码: ${code}\n\n错误类型: ${knownError.type}\n\n最近的错误日志:\n${errorDetails}`,
-            buttons: ['退出应用', '查看完整日志'],
-            defaultId: 0,
-            cancelId: 0
-          };
-        } else {
-          // 未识别的错误，显示通用错误信息
-          dialogOptions = {
-            type: 'error',
-            title: '服务器崩溃',
-            message: '服务器进程异常退出',
-            detail: `退出代码: ${code}\n\n最近的错误信息:\n${errorDetails}`,
-            buttons: ['退出应用', '查看完整日志'],
-            defaultId: 0,
-            cancelId: 0
-          };
+function injectDesktopBootstrap(html, root) {
+  const context = Array.from(appServers.values()).find((item) => item.frontendRoot === root)
+  const instance = context?.instance || getActiveInstance()
+  const bootstrap = {
+    desktop: true,
+    backend: instance ? { id: instance.id, baseUrl: instance.baseUrl, authMode: instance.authMode } : null,
+    language: resolveLanguage(config.desktopLanguage),
+  }
+  const user =
+    instance && instance.authMode === 'accessToken' && instance.userId
+      ? instance.user || {
+          id: Number(instance.userId) || instance.userId,
+          username: instance.name || 'desktop-user',
+          display_name: instance.name || 'Desktop user',
+          role: 1,
+          status: 1,
         }
-        
-        dialog.showMessageBox(dialogOptions).then((result) => {
-          if (result.response === 1) {
-            // 用户选择查看详情，保存并打开日志文件
-            const logPath = saveAndOpenErrorLog();
-            
-            // 显示确认对话框
-            const confirmMessage = logPath 
-              ? `日志已保存到:\n${logPath}\n\n日志文件已在默认文本编辑器中打开。\n\n点击"退出"关闭应用程序。`
-              : '日志保存失败，但已在控制台输出。\n\n点击"退出"关闭应用程序。';
-            
-            dialog.showMessageBox({
-              type: 'info',
-              title: '日志已保存',
-              message: confirmMessage,
-              buttons: ['退出'],
-              defaultId: 0
-            }).then(() => {
-              app.isQuitting = true;
-              app.quit();
-            });
-            
-            // 同时在控制台输出
-            console.log('=== 完整错误日志 ===');
-            console.log(serverErrorLogs.join('\n'));
-          } else {
-            // 用户选择直接退出
-            app.isQuitting = true;
-            app.quit();
-          }
-        });
-      } else {
-        // 正常退出（code为0或null），直接关闭窗口
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.close();
-        }
-      }
-    });
+      : null
+  const script = `<script>
+window.__NEW_API_DESKTOP__=${JSON.stringify(bootstrap)};
+try {
+  localStorage.setItem('i18nextLng', ${JSON.stringify(resolveLanguage(config.desktopLanguage))});
+  localStorage.setItem('language', ${JSON.stringify(resolveLanguage(config.desktopLanguage))});
+  ${user ? `localStorage.setItem('user', ${JSON.stringify(JSON.stringify(user))}); localStorage.setItem('uid', ${JSON.stringify(String(user.id))});` : ''}
+} catch (_) {}
+</script>`
+  return html.includes('</head>') ? html.replace('</head>', `${script}</head>`) : `${script}${html}`
+}
 
-    checkServerAvailability(PORT)
-      .then(() => {
-        console.log('✓ Backend server is accessible on port 3000');
-        resolve();
+function rememberSetCookie(instanceId, setCookieHeaders) {
+  if (!instanceId || !setCookieHeaders) return
+  const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders]
+  const jar = cookieJars.get(instanceId) || new Map()
+  for (const header of headers) {
+    const first = String(header).split(';')[0]
+    const index = first.indexOf('=')
+    if (index <= 0) continue
+    const name = first.slice(0, index).trim()
+    const value = first.slice(index + 1).trim()
+    if (name && value) jar.set(name, value)
+    else if (name) jar.delete(name)
+  }
+  cookieJars.set(instanceId, jar)
+}
+
+function getCookieHeader(instanceId, incomingCookie) {
+  const jar = cookieJars.get(instanceId)
+  const stored = jar
+    ? Array.from(jar.entries())
+        .map(([name, value]) => `${name}=${value}`)
+        .join('; ')
+    : ''
+  if (stored && incomingCookie) return `${incomingCookie}; ${stored}`
+  return stored || incomingCookie || ''
+}
+
+function rewriteSetCookie(setCookieHeaders) {
+  const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders]
+  return headers.map((header) =>
+    String(header)
+      .replace(/;\s*Domain=[^;]*/gi, '')
+      .replace(/;\s*Secure/gi, '')
+      .replace(/SameSite=None/gi, 'SameSite=Lax'),
+  )
+}
+
+function shouldProxyPath(urlPath) {
+  return proxyPrefixes.some((prefix) => urlPath === prefix || urlPath.startsWith(`${prefix}/`))
+}
+
+function shouldCaptureUser(url, method, statusCode) {
+  const pathname = new URL(url, 'http://desktop.local').pathname
+  return method === 'GET' && statusCode === 200 && pathname === '/api/user/self'
+}
+
+function shouldFallbackPasskeyStatus(req, instance, statusCode) {
+  if (!instance || instance.authMode !== 'accessToken') return false
+  if (req.method !== 'GET') return false
+  const urlPath = new URL(req.url, instance.baseUrl).pathname
+  return urlPath === '/api/user/passkey' && statusCode === 401
+}
+
+function updateInstanceFromResponse(instance, responseBody) {
+  if (!instance || !responseBody) return
+  try {
+    const json = JSON.parse(responseBody)
+    const user = json && json.data && typeof json.data === 'object' ? json.data : null
+    if (!user || user.id == null) return
+    instance.userId = String(user.id)
+    instance.user = user
+    if (!instance.name || instance.name === instance.baseUrl) {
+      instance.name = user.username ? `${user.username} @ ${new URL(instance.baseUrl).host}` : instance.name
+    }
+    instance.updatedAt = new Date().toISOString()
+    saveConfig()
+  } catch {
+    /* ignore non-user JSON */
+  }
+}
+
+function proxyRequest(req, res, context = {}) {
+  const instance = context.instance || getActiveInstance()
+  if (!instance || !instance.baseUrl) {
+    sendJson(res, 503, { success: false, message: 'No backend instance is configured.' })
+    return
+  }
+
+  let target
+  try {
+    target = new URL(req.url, instance.baseUrl)
+  } catch (err) {
+    sendJson(res, 400, { success: false, message: err.message })
+    return
+  }
+
+  const headers = { ...req.headers }
+  delete headers.host
+  delete headers.connection
+  delete headers['content-length']
+  delete headers['accept-encoding']
+  delete headers.cookie
+
+  const cookie = instance.authMode === 'accessToken' ? '' : getCookieHeader(instance.id, req.headers.cookie)
+  if (cookie) headers.cookie = cookie
+  if (instance.authMode === 'accessToken' && instance.accessToken) headers.authorization = instance.accessToken
+  if (instance.userId && !headers['new-api-user']) headers['new-api-user'] = instance.userId
+
+  const client = target.protocol === 'https:' ? https : http
+  const proxyReq = client.request(
+    target,
+    { method: req.method, headers, timeout: 120000 },
+    (proxyRes) => {
+      if (instance.authMode !== 'accessToken') rememberSetCookie(instance.id, proxyRes.headers['set-cookie'])
+      const responseHeaders = { ...proxyRes.headers }
+      delete responseHeaders['content-encoding']
+      delete responseHeaders['content-length']
+      if (responseHeaders['set-cookie']) responseHeaders['set-cookie'] = rewriteSetCookie(responseHeaders['set-cookie'])
+
+      const contentType = String(proxyRes.headers['content-type'] || '')
+      const isStream =
+        contentType.includes('text/event-stream') ||
+        req.url.includes('/stream') ||
+        req.headers.accept === 'text/event-stream'
+
+      if (isStream) {
+        res.writeHead(proxyRes.statusCode || 502, responseHeaders)
+        proxyRes.pipe(res)
+        return
+      }
+
+      const chunks = []
+      proxyRes.on('data', (chunk) => chunks.push(chunk))
+      proxyRes.on('end', () => {
+        const body = Buffer.concat(chunks)
+        const text = body.toString('utf8')
+        if (shouldCaptureUser(req.url, req.method, proxyRes.statusCode)) updateInstanceFromResponse(instance, text)
+        if (shouldFallbackPasskeyStatus(req, instance, proxyRes.statusCode || 502)) {
+          sendJson(res, 200, {
+            success: true,
+            message: '',
+            data: { enabled: false, desktop_access_token: true },
+          })
+          return
+        }
+        res.writeHead(proxyRes.statusCode || 502, responseHeaders)
+        res.end(body)
       })
-      .catch((err) => {
-        console.error('✗ Failed to connect to backend server');
-        reject(err);
-      });
-  });
+    },
+  )
+  proxyReq.on('timeout', () => proxyReq.destroy(new Error('Backend request timed out')))
+  proxyReq.on('error', (err) => {
+    if (res.headersSent) res.destroy(err)
+    else sendJson(res, 502, { success: false, message: `Unable to reach backend: ${err.message}` })
+  })
+  req.pipe(proxyReq)
 }
 
-function createWindow() {
-  const isDev = process.env.NODE_ENV === 'development';
-  const loadPort = isDev ? DEV_FRONTEND_PORT : PORT;
-  
-  mainWindow = new BrowserWindow({
-    width: 1080,
-    height: 720,
+function createAppServerContext(instanceId, flavor) {
+  const instance = config.instances.find((item) => item.id === instanceId) || getActiveInstance()
+  if (!instance) throw new Error('No backend instance is configured.')
+  const selectedFlavor = flavor === 'classic' ? 'classic' : 'default'
+  return {
+    id: createId(),
+    instance,
+    flavor: selectedFlavor,
+    frontendRoot: getFrontendDist(selectedFlavor),
+    server: null,
+    port: 0,
+  }
+}
+
+function startAppServer(context) {
+  return new Promise((resolve, reject) => {
+    if (context.server) {
+      resolve(context)
+      return
+    }
+    const server = http.createServer((req, res) => {
+      const urlPath = new URL(req.url, 'http://127.0.0.1').pathname
+      if (shouldProxyPath(urlPath)) {
+        proxyRequest(req, res, context)
+        return
+      }
+      serveFile(res, context.frontendRoot, urlPath, true)
+    })
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      context.server = server
+      context.port = server.address().port
+      appServers.set(context.id, context)
+      resolve(context)
+    })
+  })
+}
+
+function stopAppServer(context) {
+  if (!context || !context.server) return
+  context.server.close()
+  appServers.delete(context.id)
+  context.server = null
+}
+
+function getAppContextUrl(context) {
+  return `http://127.0.0.1:${context.port}/`
+}
+
+function startDesktopServer() {
+  return new Promise((resolve, reject) => {
+    desktopServer = http.createServer((req, res) => {
+      const urlPath = new URL(req.url, `http://127.0.0.1:${desktopServerPort || preferredDesktopPort}`).pathname
+      if (urlPath === '/__desktop/config') {
+        sendJson(res, 200, getPublicConfig())
+        return
+      }
+      if (urlPath === '/desktop' || urlPath.startsWith('/desktop/')) {
+        serveFile(res, getDesktopRoot(), urlPath.replace(/^\/desktop\/?/, '/') || '/index.html', true)
+        return
+      }
+      sendJson(res, 404, { success: false, message: 'Not found' })
+    })
+    desktopServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE' && desktopServerPort === 0) {
+        desktopServer.listen(0, '127.0.0.1')
+        return
+      }
+      reject(err)
+    })
+    desktopServer.listen(preferredDesktopPort, '127.0.0.1', () => {
+      desktopServerPort = desktopServer.address().port
+      resolve()
+    })
+  })
+}
+
+function installWindowShortcuts(win) {
+  win.webContents.on('before-input-event', (event, input) => {
+    const key = String(input.key || '').toLowerCase()
+    const reloadRequested = input.key === 'F5' || ((input.control || input.meta) && key === 'r')
+    const devtoolsRequested =
+      input.key === 'F12' ||
+      ((input.control || input.meta) && input.shift && key === 'i') ||
+      (input.meta && input.alt && key === 'i')
+    if (reloadRequested) {
+      event.preventDefault()
+      win.webContents.reloadIgnoringCache()
+    }
+    if (devtoolsRequested) {
+      event.preventDefault()
+      win.webContents.toggleDevTools()
+    }
+  })
+}
+
+async function createWindow(options = {}) {
+  const context = createAppServerContext(options.instanceId || config.activeInstanceId, options.flavor || config.activeFlavor)
+  await startAppServer(context)
+  const win = new BrowserWindow({
+    width: 1320,
+    height: 860,
+    minWidth: 980,
+    minHeight: 640,
+    title: `${context.flavor === 'classic' ? 'Classic' : 'Default'} - ${context.instance.name}`,
+    icon: path.join(__dirname, 'icon.png'),
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
       nodeIntegration: false,
-      contextIsolation: true
+      sandbox: false,
     },
-    title: 'New API',
-    icon: path.join(__dirname, 'icon.png')
-  });
-
-  mainWindow.loadURL(`http://127.0.0.1:${loadPort}`);
-  
-  console.log(`Loading from: http://127.0.0.1:${loadPort}`);
-
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
-  }
-
-  // Close to tray instead of quitting
-  mainWindow.on('close', (event) => {
+  })
+  win.setMenuBarVisibility(false)
+  win.__newApiContext = context
+  appWindows.add(win)
+  mainWindow = win
+  installWindowShortcuts(win)
+  win.loadURL(getAppContextUrl(context))
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(getAppContextUrl(context)) || url.startsWith(getDesktopUrl())) return { action: 'allow' }
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.on('close', (event) => {
     if (!app.isQuitting) {
-      event.preventDefault();
-      mainWindow.hide();
-      if (process.platform === 'darwin') {
-        app.dock.hide();
-      }
+      event.preventDefault()
+      win.hide()
     }
-  });
+  })
+  win.on('closed', () => {
+    appWindows.delete(win)
+    stopAppServer(context)
+    if (mainWindow === win) mainWindow = Array.from(appWindows).find((item) => !item.isDestroyed()) || null
+  })
+  return win
+}
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+function createSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show()
+    settingsWindow.focus()
+    return
+  }
+  settingsWindow = new BrowserWindow({
+    width: 480,
+    height: 760,
+    minWidth: 420,
+    minHeight: 560,
+    title: 'New API Desktop Settings',
+    icon: path.join(__dirname, 'icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+  settingsWindow.setMenuBarVisibility(false)
+  installWindowShortcuts(settingsWindow)
+  settingsWindow.loadURL(getDesktopUrl())
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+  })
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow().catch((err) => {
+      createSettingsWindow()
+      dialog.showErrorBox('New API Desktop', err.message)
+    })
+    return
+  }
+  mainWindow.show()
+  mainWindow.focus()
 }
 
 function createTray() {
-  // Use template icon for macOS (black with transparency, auto-adapts to theme)
-  // Use colored icon for Windows
-  const trayIconPath = process.platform === 'darwin'
-    ? path.join(__dirname, 'tray-iconTemplate.png')
-    : path.join(__dirname, 'tray-icon-windows.png');
+  const icon =
+    process.platform === 'darwin'
+      ? path.join(__dirname, 'tray-iconTemplate.png')
+      : path.join(__dirname, 'tray-icon-windows.png')
+  tray = new Tray(icon)
+  tray.setToolTip('New API Desktop')
+  tray.on('click', showMainWindow)
+  updateTrayMenu()
+}
 
-  tray = new Tray(trayIconPath);
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show New API',
+function updateTrayMenu() {
+  if (!tray) return
+  const active = getActiveInstance()
+  const launchItems = (flavor) =>
+    config.instances.map((item) => ({
+      label: item.name,
       click: () => {
-        if (mainWindow === null) {
-          createWindow();
-        } else {
-          mainWindow.show();
-          if (process.platform === 'darwin') {
-            app.dock.show();
+        config.activeInstanceId = item.id
+        config.activeFlavor = flavor
+        item.flavor = flavor
+        item.updatedAt = new Date().toISOString()
+        saveConfig()
+        createWindow({ instanceId: item.id, flavor }).catch((err) => dialog.showErrorBox('New API Desktop', err.message))
+        refreshStatus()
+      },
+    }))
+  const hasInstances = config.instances.length > 0
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: active ? `${t('Backend')}: ${active.name}` : t('No backend configured'), enabled: false },
+      { label: lastStatus.ok ? `${t('Status')}: ${t('Online')}` : `${t('Status')}: ${lastStatus.message}`, enabled: false },
+      { type: 'separator' },
+      { label: t('Show'), click: showMainWindow },
+      { label: t('Settings'), click: createSettingsWindow },
+      { label: t('Launch Default Frontend'), enabled: hasInstances, submenu: launchItems('default') },
+      { label: t('Launch Classic Frontend'), enabled: hasInstances, submenu: launchItems('classic') },
+      { type: 'separator' },
+      {
+        label: t('Quit'),
+        click: () => {
+          app.isQuitting = true
+          app.quit()
+        },
+      },
+    ]),
+  )
+}
+
+function requestBackend(instance, requestPath, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(requestPath, instance.baseUrl)
+    const headers = { Accept: 'application/json', ...(options.headers || {}) }
+    if (instance.authMode === 'accessToken' && instance.accessToken) headers.Authorization = instance.accessToken
+    if (instance.userId) headers['New-Api-User'] = instance.userId
+    const client = target.protocol === 'https:' ? https : http
+    const req = client.request(
+      target,
+      { method: options.method || 'GET', headers, timeout: options.timeout || 20000 },
+      (res) => {
+        const chunks = []
+        res.on('data', (chunk) => chunks.push(chunk))
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8')
+          let data = null
+          try {
+            data = body ? JSON.parse(body) : null
+          } catch {
+            data = null
           }
-        }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        app.isQuitting = true;
-        app.quit();
-      }
+          resolve({ statusCode: res.statusCode || 0, body, data })
+        })
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error('Backend request timed out')))
+    req.on('error', reject)
+    if (options.body) req.write(options.body)
+    req.end()
+  })
+}
+
+async function refreshStatus() {
+  const instance = getActiveInstance()
+  if (!instance) {
+    lastStatus = { ok: false, message: t('No backend configured'), checkedAt: new Date().toISOString() }
+    updateTrayMenu()
+    broadcastConfig()
+    return lastStatus
+  }
+  try {
+    const res = await requestBackend(instance, '/api/user/self')
+    const ok = res.statusCode === 200 && res.data && res.data.success !== false
+    if (ok) updateInstanceFromResponse(instance, res.body)
+    lastStatus = {
+      ok,
+      message: ok ? t('Online') : res.data?.message || `HTTP ${res.statusCode}`,
+      checkedAt: new Date().toISOString(),
     }
-  ]);
+  } catch (err) {
+    lastStatus = { ok: false, message: err.message, checkedAt: new Date().toISOString() }
+  }
+  updateTrayMenu()
+  broadcastConfig()
+  return lastStatus
+}
 
-  tray.setToolTip('New API');
-  tray.setContextMenu(contextMenu);
+async function validateAccessToken(input) {
+  const draft = sanitizeInstance({ ...input, authMode: 'accessToken' })
+  if (!draft.baseUrl) throw new Error('Backend URL is required')
+  if (!draft.accessToken) throw new Error('Access token is required')
+  if (!draft.userId) throw new Error('User ID is required')
+  const res = await requestBackend(draft, '/api/user/self')
+  if (!res.data || res.data.success === false) throw new Error(res.data?.message || `Validation failed with HTTP ${res.statusCode}`)
+  updateInstanceFromResponse(draft, res.body)
+  return publicInstance(draft)
+}
 
-  // On macOS, clicking the tray icon shows the window
-  tray.on('click', () => {
-    if (mainWindow === null) {
-      createWindow();
+function setFlavor(flavor) {
+  config.activeFlavor = flavor === 'classic' ? 'classic' : 'default'
+  const active = getActiveInstance()
+  if (active) {
+    active.flavor = config.activeFlavor
+    active.updatedAt = new Date().toISOString()
+  }
+  saveConfig()
+}
+
+function setupIpc() {
+  ipcMain.handle('desktop:get-config', () => getPublicConfig())
+  ipcMain.handle('desktop:save-instance', (_event, input) => {
+    const instance = sanitizeInstance(input)
+    if (!instance.baseUrl) throw new Error('Backend URL is invalid')
+    const index = config.instances.findIndex((item) => item.id === instance.id)
+    if (index >= 0) {
+      config.instances[index] = {
+        ...config.instances[index],
+        ...instance,
+        accessToken: input.accessToken || config.instances[index].accessToken,
+        user: input.user || config.instances[index].user,
+      }
     } else {
-      mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
-      if (mainWindow.isVisible() && process.platform === 'darwin') {
-        app.dock.show();
-      }
+      config.instances.push(instance)
     }
-  });
+    config.activeInstanceId = instance.id
+    config.activeFlavor = instance.flavor
+    saveConfig()
+    refreshStatus()
+    return getPublicConfig()
+  })
+  ipcMain.handle('desktop:delete-instance', (_event, id) => {
+    config.instances = config.instances.filter((item) => item.id !== id)
+    cookieJars.delete(id)
+    if (config.activeInstanceId === id) config.activeInstanceId = config.instances[0]?.id || ''
+    saveConfig()
+    refreshStatus()
+    return getPublicConfig()
+  })
+  ipcMain.handle('desktop:set-active-instance', (_event, id) => {
+    if (!config.instances.some((item) => item.id === id)) throw new Error('Instance not found')
+    config.activeInstanceId = id
+    const active = getActiveInstance()
+    if (active?.flavor) config.activeFlavor = active.flavor
+    saveConfig()
+    refreshStatus()
+    return getPublicConfig()
+  })
+  ipcMain.handle('desktop:set-flavor', (_event, flavor) => {
+    setFlavor(flavor)
+    return getPublicConfig()
+  })
+  ipcMain.handle('desktop:set-language', (_event, language) => {
+    config.desktopLanguage = ['auto', ...supportedLanguages].includes(language) ? language : 'auto'
+    saveConfig()
+    return getPublicConfig()
+  })
+  ipcMain.handle('desktop:refresh-status', () => refreshStatus())
+  ipcMain.handle('desktop:validate-access-token', (_event, input) => validateAccessToken(input))
+  ipcMain.handle('desktop:open-external', (_event, url) => shell.openExternal(url))
+  ipcMain.handle('desktop:open-window', (_event, options) => createWindow(options))
+  ipcMain.handle('desktop:check-for-updates', () => checkForUpdates())
+}
+
+async function checkForUpdates() {
+  if (!config.updateFeedUrl) return { ok: false, message: 'No update feed URL is configured.' }
+  try {
+    const { autoUpdater } = require('electron-updater')
+    autoUpdater.setFeedURL({ provider: 'generic', url: config.updateFeedUrl })
+    autoUpdater.autoDownload = true
+    const result = await autoUpdater.checkForUpdatesAndNotify()
+    return {
+      ok: true,
+      message: result?.updateInfo ? `Update check completed: ${result.updateInfo.version}` : 'Update check completed.',
+    }
+  } catch (err) {
+    return { ok: false, message: err.message }
+  }
 }
 
 app.whenReady().then(async () => {
-  try {
-    await startServer();
-    createTray();
-    createWindow();
-  } catch (err) {
-    console.error('Failed to start application:', err);
-    
-    // 分析启动失败的错误
-    const knownError = analyzeError(serverErrorLogs);
-    
-    if (knownError) {
-      dialog.showMessageBox({
-        type: 'error',
-        title: knownError.title,
-        message: `启动失败: ${knownError.message}`,
-        detail: `${knownError.solution}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n错误信息: ${err.message}\n\n错误类型: ${knownError.type}`,
-        buttons: ['退出', '查看完整日志'],
-        defaultId: 0,
-        cancelId: 0
-      }).then((result) => {
-        if (result.response === 1) {
-          // 用户选择查看日志
-          const logPath = saveAndOpenErrorLog();
-          
-          const confirmMessage = logPath 
-            ? `日志已保存到:\n${logPath}\n\n日志文件已在默认文本编辑器中打开。\n\n点击"退出"关闭应用程序。`
-            : '日志保存失败，但已在控制台输出。\n\n点击"退出"关闭应用程序。';
-          
-          dialog.showMessageBox({
-            type: 'info',
-            title: '日志已保存',
-            message: confirmMessage,
-            buttons: ['退出'],
-            defaultId: 0
-          }).then(() => {
-            app.quit();
-          });
-          
-          console.log('=== 完整错误日志 ===');
-          console.log(serverErrorLogs.join('\n'));
-        } else {
-          app.quit();
-        }
-      });
-    } else {
-      dialog.showMessageBox({
-        type: 'error',
-        title: '启动失败',
-        message: '无法启动服务器',
-        detail: `错误信息: ${err.message}\n\n请检查日志获取更多信息。`,
-        buttons: ['退出', '查看完整日志'],
-        defaultId: 0,
-        cancelId: 0
-      }).then((result) => {
-        if (result.response === 1) {
-          // 用户选择查看日志
-          const logPath = saveAndOpenErrorLog();
-          
-          const confirmMessage = logPath 
-            ? `日志已保存到:\n${logPath}\n\n日志文件已在默认文本编辑器中打开。\n\n点击"退出"关闭应用程序。`
-            : '日志保存失败，但已在控制台输出。\n\n点击"退出"关闭应用程序。';
-          
-          dialog.showMessageBox({
-            type: 'info',
-            title: '日志已保存',
-            message: confirmMessage,
-            buttons: ['退出'],
-            defaultId: 0
-          }).then(() => {
-            app.quit();
-          });
-          
-          console.log('=== 完整错误日志 ===');
-          console.log(serverErrorLogs.join('\n'));
-        } else {
-          app.quit();
-        }
-      });
-    }
-  }
-});
+  loadConfig()
+  setupIpc()
+  Menu.setApplicationMenu(null)
+  nativeTheme.themeSource = 'system'
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(['media', 'notifications', 'openExternal'].includes(permission))
+  })
+  await startDesktopServer()
+  createTray()
+  if (getActiveInstance()) await createWindow()
+  else createSettingsWindow()
+  refreshStatus()
+  if (config.autoRefreshStatus) setInterval(refreshStatus, 60000)
+})
+
+app.on('activate', showMainWindow)
 
 app.on('window-all-closed', () => {
-  // Don't quit when window is closed, keep running in tray
-  // Only quit when explicitly choosing Quit from tray menu
-});
+  /* keep tray app alive */
+})
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
-
-app.on('before-quit', (event) => {
-  if (serverProcess) {
-    event.preventDefault();
-
-    console.log('Shutting down server...');
-    serverProcess.kill('SIGTERM');
-
-    setTimeout(() => {
-      if (serverProcess) {
-        serverProcess.kill('SIGKILL');
-      }
-      app.exit();
-    }, 5000);
-
-    serverProcess.on('close', () => {
-      serverProcess = null;
-      app.exit();
-    });
-  }
-});
+app.on('before-quit', () => {
+  app.isQuitting = true
+  for (const context of appServers.values()) stopAppServer(context)
+  if (desktopServer) desktopServer.close()
+})

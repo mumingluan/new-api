@@ -1,18 +1,22 @@
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron')
 
-// 获取数据目录路径（用于显示给用户）
-// 优先使用主进程设置的真实路径，如果没有则回退到手动拼接
-function getDataDirPath() {
-  // 如果主进程已设置真实路径，直接使用
-  if (process.env.ELECTRON_DATA_DIR) {
-    return process.env.ELECTRON_DATA_DIR;
-  }
-}
-
-contextBridge.exposeInMainWorld('electron', {
-  isElectron: true,
-  version: process.versions.electron,
+contextBridge.exposeInMainWorld('newApiDesktop', {
   platform: process.platform,
   versions: process.versions,
-  dataDir: getDataDirPath()
-});
+  getConfig: () => ipcRenderer.invoke('desktop:get-config'),
+  saveInstance: (instance) => ipcRenderer.invoke('desktop:save-instance', instance),
+  deleteInstance: (id) => ipcRenderer.invoke('desktop:delete-instance', id),
+  setActiveInstance: (id) => ipcRenderer.invoke('desktop:set-active-instance', id),
+  setFlavor: (flavor) => ipcRenderer.invoke('desktop:set-flavor', flavor),
+  setLanguage: (language) => ipcRenderer.invoke('desktop:set-language', language),
+  refreshStatus: () => ipcRenderer.invoke('desktop:refresh-status'),
+  validateAccessToken: (instance) => ipcRenderer.invoke('desktop:validate-access-token', instance),
+  openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
+  openWindow: (options) => ipcRenderer.invoke('desktop:open-window', options),
+  checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
+  onConfigChanged: (callback) => {
+    const listener = (_event, config) => callback(config)
+    ipcRenderer.on('desktop-config-changed', listener)
+    return () => ipcRenderer.removeListener('desktop-config-changed', listener)
+  },
+})

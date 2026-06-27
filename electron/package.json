@@ -6,6 +6,7 @@
   "scripts": {
     "start-app": "electron .",
     "dev-app": "cross-env NODE_ENV=development electron .",
+    "build:frontends": "cd ../web/default && bun run build && cd ../classic && bun run build",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
@@ -38,6 +39,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "desktop/**/*",
       "icon.png",
       "tray-iconTemplate.png",
       "tray-iconTemplate@2x.png",
@@ -57,12 +59,12 @@
       ],
       "extraResources": [
         {
-          "from": "../new-api",
-          "to": "bin/new-api"
+          "from": "../web/default/dist",
+          "to": "web/default/dist"
         },
         {
-          "from": "../web/dist",
-          "to": "web/dist"
+          "from": "../web/classic/dist",
+          "to": "web/classic/dist"
         },
         {
           "from": "../LICENSE",
@@ -94,8 +96,12 @@
       ],
       "extraResources": [
         {
-          "from": "../new-api.exe",
-          "to": "bin/new-api.exe"
+          "from": "../web/default/dist",
+          "to": "web/default/dist"
+        },
+        {
+          "from": "../web/classic/dist",
+          "to": "web/classic/dist"
         },
         {
           "from": "../LICENSE",
@@ -128,8 +134,12 @@
       "category": "Development",
       "extraResources": [
         {
-          "from": "../new-api",
-          "to": "bin/new-api"
+          "from": "../web/default/dist",
+          "to": "web/default/dist"
+        },
+        {
+          "from": "../web/classic/dist",
+          "to": "web/classic/dist"
         },
         {
           "from": "../LICENSE",
@@ -157,5 +167,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }
