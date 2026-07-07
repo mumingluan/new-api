@@ -17,6 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import { VChart, registerBrowserEnv } from '@visactor/vchart';
+
+// 显式注册 VChart 浏览器环境。@visactor/vchart 的浏览器环境注册是带副作用的，但
+// 其 package.json 只把少量入口标记为 sideEffects，生产构建的 tree-shaking 会把这段
+// 副作用摇掉，导致运行时没有任何 env 被激活，application.global.envContribution 为
+// undefined，渲染首个图表时抛出 Cannot read properties of undefined (reading 'createCanvas')。
+// useRegisters 幂等，底层 vrender 容器为单例，只需注册一次。
+VChart.useRegisters([registerBrowserEnv]);
+
 // ========== UI 配置常量 ==========
 export const CHART_CONFIG = { mode: 'desktop-browser' };
 

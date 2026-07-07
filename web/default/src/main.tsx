@@ -34,6 +34,9 @@ import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
+// Registers VChart's browser env (createCanvas) before any chart mounts. Imported
+// here for its side effect so tree-shaking cannot drop it from the entry chunk.
+import '@/lib/vchart'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { DirectionProvider } from './context/direction-provider'

@@ -16,6 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { VChart, registerBrowserEnv } from '@visactor/vchart'
+
+// VChart 的浏览器环境注册模块是带副作用的，但 @visactor/vchart 的 package.json
+// 只把少量 `vchart-all`/`vchart-simple` 入口标记为 sideEffects，浏览器环境注册并不在其中。
+// 在生产构建（rspack tree-shaking）下这段副作用会被摇掉，导致运行时没有任何 env 被激活，
+// `application.global.envContribution` 为 undefined，渲染首个图表时抛出
+// `Cannot read properties of undefined (reading 'createCanvas')`。
+//
+// 这里在任何图表挂载前，显式且不可被摇树的方式注册浏览器环境。useRegisters 幂等，
+// 底层 vrender 容器是单例，react-vchart 与 vchart 共享同一容器，只需注册一次。
+VChart.useRegisters([registerBrowserEnv])
+
 export const VCHART_OPTION = {
   // 与老前端保持一致（浏览器环境渲染优化）
   mode: 'desktop-browser',
