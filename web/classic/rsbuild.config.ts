@@ -15,28 +15,35 @@ const semiDateFnsDir = path.resolve(
   'node_modules/date-fns',
 )
 
-// VChart 依赖的底层 vrender-*/vutils 在 classic 依赖树里存在多份物理副本
-// （react-vchart 与 vchart 各自嵌套一份 0.17.17）。vrender-core 内部通过
-// application.global 维护渲染环境单例，多份副本 = 多个互不相通的单例：
-// registerBrowserEnv 注册到其中一份，而 <VChart> 渲染时读取的是另一份，
-// application.global.envContribution 仍为 undefined，首个图表 createCanvas 崩溃。
+// VChart 在 classic 依赖树里存在多份物理副本，会各自持有独立的单例，导致两类问题：
 //
-// 这里把这些底层包强制指向 vchart 自带的那份 0.17.17（完整集合，含
-// vrender-components），保证 vchart 与 react-vchart 共用同一个 vrender-core 单例。
-// 注意不能指向 workspace 顶层 hoist 的 1.1.4：那是给新前端 vchart 2.x 用的，
-// 与 classic 的 vchart 1.8.11 大版本不兼容。
+// 1) 渲染环境单例（vrender-core 的 application.global）：react-vchart 与 vchart 各自
+//    嵌套一份 vrender-core（0.17.17）。多份副本 = 多个互不相通的单例，registerBrowserEnv
+//    注册到其中一份，而 <VChart> 渲染时读取的是另一份，application.global.envContribution
+//    仍为 undefined，首个图表 createCanvas 崩溃。
+//
+// 2) 主题单例（@visactor/vchart 的 VChart.ThemeManager）：应用通过 react-vchart →
+//    classic 自带的 @visactor/vchart 渲染，而 vchart-semi-theme 内部 `import VChart from
+//    '@visactor/vchart'` 命中的是它自己嵌套的另一份 vchart。initVChartSemiTheme 把 Semi
+//    深色主题 registerTheme/setCurrentTheme 到了后者的 ThemeManager 上，渲染用的却是前者的
+//    ThemeManager，于是图表深色模式完全失效（只显示浅色）。
+//
+// 解决：把 @visactor/vchart 以及它依赖的底层 vrender-*/vutils 全部指向 classic 自带的
+// 那一份（vchart 1.8.11 + 内嵌 vrender 0.17.17 完整集合）。这样渲染、环境注册、主题注册
+// 都落在同一组单例上。注意不能指向 workspace 顶层 hoist 的 vchart 2.1.2 / vrender 1.1.4：
+// 那是给新前端用的，与 classic 的 1.8.11 大版本不兼容。
 const vchartDir = path.dirname(require.resolve('@visactor/vchart/package.json'))
-const vrenderDedupeAlias = Object.fromEntries(
-  [
-    '@visactor/vrender-core',
-    '@visactor/vrender-kits',
-    '@visactor/vrender-components',
-    '@visactor/vutils',
-  ].map((pkg) => [
-    pkg,
-    path.join(vchartDir, 'node_modules', pkg),
-  ]),
-)
+const visactorDedupeAlias = {
+  '@visactor/vchart': vchartDir,
+  ...Object.fromEntries(
+    [
+      '@visactor/vrender-core',
+      '@visactor/vrender-kits',
+      '@visactor/vrender-components',
+      '@visactor/vutils',
+    ].map((pkg) => [pkg, path.join(vchartDir, 'node_modules', pkg)]),
+  ),
+}
 
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] })
@@ -75,9 +82,10 @@ export default defineConfig(({ envMode }) => {
           'dist/css/semi.css',
         ),
         'date-fns': semiDateFnsDir,
-        // Force a single physical copy of vrender-*/vutils so VChart's render
-        // environment singleton is shared (see vrenderDedupeAlias above).
-        ...vrenderDedupeAlias,
+        // Force a single physical copy of @visactor/vchart and its vrender-*/vutils
+        // deps so the render engine, browser-env, and Semi theme all share one set
+        // of singletons (see visactorDedupeAlias above).
+        ...visactorDedupeAlias,
       },
     },
     html: {
