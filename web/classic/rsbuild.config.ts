@@ -15,6 +15,29 @@ const semiDateFnsDir = path.resolve(
   'node_modules/date-fns',
 )
 
+// VChart 依赖的底层 vrender-*/vutils 在 classic 依赖树里存在多份物理副本
+// （react-vchart 与 vchart 各自嵌套一份 0.17.17）。vrender-core 内部通过
+// application.global 维护渲染环境单例，多份副本 = 多个互不相通的单例：
+// registerBrowserEnv 注册到其中一份，而 <VChart> 渲染时读取的是另一份，
+// application.global.envContribution 仍为 undefined，首个图表 createCanvas 崩溃。
+//
+// 这里把这些底层包强制指向 vchart 自带的那份 0.17.17（完整集合，含
+// vrender-components），保证 vchart 与 react-vchart 共用同一个 vrender-core 单例。
+// 注意不能指向 workspace 顶层 hoist 的 1.1.4：那是给新前端 vchart 2.x 用的，
+// 与 classic 的 vchart 1.8.11 大版本不兼容。
+const vchartDir = path.dirname(require.resolve('@visactor/vchart/package.json'))
+const vrenderDedupeAlias = Object.fromEntries(
+  [
+    '@visactor/vrender-core',
+    '@visactor/vrender-kits',
+    '@visactor/vrender-components',
+    '@visactor/vutils',
+  ].map((pkg) => [
+    pkg,
+    path.join(vchartDir, 'node_modules', pkg),
+  ]),
+)
+
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] })
   const clientServerUrl =
@@ -52,6 +75,9 @@ export default defineConfig(({ envMode }) => {
           'dist/css/semi.css',
         ),
         'date-fns': semiDateFnsDir,
+        // Force a single physical copy of vrender-*/vutils so VChart's render
+        // environment singleton is shared (see vrenderDedupeAlias above).
+        ...vrenderDedupeAlias,
       },
     },
     html: {
