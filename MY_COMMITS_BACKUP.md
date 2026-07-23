@@ -5,10 +5,10 @@
 上游基点：
 
 ```text
-e8c836d70 fix(web): improve form validation error focus #5163
+172114422 fix(auth): keep login state on rate-limited or failing token refresh
 ```
 
-更新时间：2026-07-23。已逐个查看当前 fork 独有提交，并按“当前工作区最终仍保留的差异”重新整理。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-07-23。已逐个查看当前 fork 独有提交，并按“当前工作区最终仍保留的差异”重新整理。Classic 前端及其 Electron 远程后端壳已迁移到独立仓库 `mumingluan/new-api-desktop`；本仓库的 `web/` 只保留新版前端，`electron/` 与上游保持一致。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -47,8 +47,7 @@ e8c836d70 fix(web): improve form validation error focus #5163
 
 前端配置：
 
-- classic 前端请求限流页面新增密钥分钟级和每日限流配置。
-- default 前端新增 `TokenRateLimitSection` 和 `TokenDailyRateLimitSection`。
+- 新版前端新增 `TokenRateLimitSection` 和 `TokenDailyRateLimitSection`。
 - en、zh、fr、ja、ru、vi 翻译文件补齐相关文案。
 
 补充说明：
@@ -166,53 +165,41 @@ e8c836d70 fix(web): improve form validation error focus #5163
 
 保留行为：
 
-- classic 新建 token 默认 `remain_quota = 500000`，`unlimited_quota = false`。
-- default 新建 API key 默认 1 美元额度，并默认不是无限额度。
-- classic/default 的 API key 和兑换码表单加入常用美元金额快捷按钮。
-- classic token 分组选择恢复自动分组逻辑；当服务端返回 `default_use_auto_group` 时默认选择 `auto`。
+- 新版前端新建 API key 默认 1 美元额度，并默认不是无限额度。
+- 新版前端的 API key 和兑换码表单加入常用美元金额快捷按钮。
 
 主要文件：
 
 | 文件 | 说明 |
 | ---- | ---- |
-| `web/classic/src/components/table/tokens/modals/EditTokenModal.jsx` | classic token 默认值、自动分组、金额预设 |
-| `web/classic/src/components/table/redemptions/modals/EditRedemptionModal.jsx` | classic 兑换码金额预设 |
-| `web/default/src/features/keys/lib/api-key-form.ts` | default API key 默认有限额度 |
-| `web/default/src/features/keys/components/api-keys-mutate-drawer.tsx` | default API key 金额预设按钮 |
-| `web/default/src/features/redemption-codes/components/redemptions-mutate-drawer.tsx` | default 兑换码金额预设按钮 |
+| `web/src/features/keys/lib/api-key-form.ts` | API key 默认有限额度 |
+| `web/src/features/keys/components/api-keys-mutate-drawer.tsx` | API key 金额预设按钮 |
+| `web/src/features/redemption-codes/components/redemptions-mutate-drawer.tsx` | 兑换码金额预设按钮 |
 
 ### 9. 控制台登录仅面向管理员的前端提示
 
 保留行为：
 
 - Public header 不再给未登录访客展示登录/注册按钮。
-- classic header 未登录状态不再展示登录/注册区域。
-- classic/default 登录页增加提示：控制台登录仅供管理员使用，普通用户请访问首页查看教程。
+- 登录页增加提示：控制台登录仅供管理员使用，普通用户请访问首页查看教程。
 
 主要文件：
 
 | 文件 | 说明 |
 | ---- | ---- |
-| `web/default/src/components/layout/components/public-header.tsx` | 隐藏未登录访客登录入口 |
-| `web/default/src/features/auth/sign-in/index.tsx` | default 登录页增加管理员提示 |
-| `web/classic/src/components/layout/headerbar/UserArea.jsx` | classic header 隐藏访客登录/注册按钮 |
-| `web/classic/src/components/auth/LoginForm.jsx` | classic 登录页增加管理员提示 |
-| `web/default/src/i18n/locales/*.json` | 补充提示文案翻译 |
+| `web/src/components/layout/components/public-header.tsx` | 隐藏未登录访客登录入口 |
+| `web/src/features/auth/sign-in/index.tsx` | 登录页增加管理员提示 |
+| `web/src/i18n/locales/*.json` | 补充提示文案翻译 |
 
-### 10. 前端依赖和 lockfile 更新
+### 10. Classic 前端和桌面壳拆分
 
-保留行为：
+仓库边界：
 
-- classic/default 前端 lock/package 文件包含本地前端改动所需依赖更新。
-
-主要文件：
-
-| 文件 | 说明 |
-| ---- | ---- |
-| `web/classic/package.json` | classic 依赖元数据 |
-| `web/classic/bun.lock` | classic Bun lockfile |
-| `web/default/bun.lock` | default Bun lockfile |
-| `web/package-lock.json` | web workspace npm lockfile |
+- Classic 前端完整源码迁移到独立仓库 `mumingluan/new-api-desktop` 的 `web/classic/`。
+- 独立桌面仓库负责构建 Classic 前端，并保留切换新版/Classic 前端、连接远程后端的桌面逻辑。
+- 本仓库删除 `web/classic/`，`web/` 只保留上游新版前端。
+- 本仓库 `electron/`、Electron 构建工作流以及 `web/package.json`、`web/bun.lock` 均还原为上游版本。
+- 桌面应用及产物名统一为 `New-API-Desktop`。
 
 ### 11. 测试稳定性清理
 
@@ -228,33 +215,25 @@ e8c836d70 fix(web): improve form validation error focus #5163
 
 ### 12. VChart 图表崩溃与深色模式修复
 
-修复仪表盘图表在生产构建下运行时崩溃（`TypeError: Cannot read properties of undefined (reading 'createCanvas')`）以及修好后图表深色模式不生效的问题。根因是 VisActor 系列包在依赖树里存在多份物理副本，导致多个互不相通的单例。
+修复新版前端仪表盘图表在生产构建下运行时崩溃（`TypeError: Cannot read properties of undefined (reading 'createCanvas')`）的问题。
 
 保留行为：
 
-- **浏览器环境注册（两个前端）**：VChart 的浏览器环境注册是带副作用的，但 `@visactor/vchart` 的 `package.json` `sideEffects` 未列出它，生产构建 tree-shaking 会摇掉，运行时没有 env 被激活，`application.global.envContribution` 为 undefined，首个图表 `createCanvas` 崩溃。改为显式且不可被摇树的 `VChart.useRegisters([registerBrowserEnv])`，在任何图表挂载前注册。
-- **vrender 单例去重（classic）**：classic 依赖树里 `@visactor/vrender-core`（+`vrender-kits`/`vutils`，均 0.17.17）存在两份物理副本（`react-vchart/` 与 `vchart/` 各嵌套一份）。`vrender-core` 通过 `application.global` 维护渲染环境单例，多份副本 = 多个互不相通的单例，`registerBrowserEnv` 注册到一份、`<VChart>` 渲染读另一份，env 仍为 undefined。通过 rsbuild alias 强制指向 classic 自带 vchart 内嵌的那份 0.17.17。
-- **vchart / ThemeManager 单例去重（classic）**：`ThemeManager` 挂在 `@visactor/vchart` 类上，classic 树里有两份 `@visactor/vchart`——应用经 `react-vchart` → classic 的 vchart 渲染，而 `@visactor/vchart-semi-theme` 内部 `import VChart from '@visactor/vchart'` 命中它自己嵌套的另一份。`initVChartSemiTheme` 把 `semiDesignDark` 注册/切换到后者的 ThemeManager，渲染读前者，导致深色主题不生效（图表只显示浅色）。将 `@visactor/vchart` 本身也 alias 到 classic 自带的那份（1.8.11），使渲染引擎、浏览器环境、Semi 主题共用同一组单例。
-- 深色链路：classic Theme context 设置 `document.body[theme-mode="dark"]` → `vchart-semi-theme` observer（`isWatchingThemeSwitch:true`）→ `setCurrentTheme('semiDesignDark')` → 图表经同一 ThemeManager 渲染。
-- **注意**：alias 不能指向 workspace 顶层 hoist 的 `@visactor/vchart` 2.1.2 / `vrender-core` 1.1.4——那是给 default 新前端 vchart 2.x 用的，与 classic 的 1.8.11 大版本不兼容。
-
-构建产物自检（classic）：`getCommonCanvas`、`isBrowserBound`、`setActiveEnvContribution`、`setCurrentTheme` 在 `dist/static/js/*.js` 中应各只出现一次。
+- VChart 的浏览器环境注册是带副作用的，但 `@visactor/vchart` 的 `package.json` `sideEffects` 未列出它，生产构建 tree-shaking 会摇掉，运行时没有 env 被激活，`application.global.envContribution` 为 undefined，首个图表 `createCanvas` 崩溃。
+- 改为显式且不可被摇树的 `VChart.useRegisters([registerBrowserEnv])`，在任何图表挂载前注册。
+- Classic 的 VisActor 去重和深色主题修复随 Classic 源码迁移到 `mumingluan/new-api-desktop`，不再属于本仓库差异。
 
 主要文件：
 
 | 文件 | 说明 |
 | ---- | ---- |
-| `web/default/src/lib/vchart.ts` | default 前端显式注册浏览器环境 `VChart.useRegisters([registerBrowserEnv])` |
-| `web/default/src/main.tsx` | 入口 side-effect 导入 `@/lib/vchart`，防止被 tree-shaking 丢弃 |
-| `web/classic/src/constants/dashboard.constants.js` | classic 前端显式注册浏览器环境 |
-| `web/classic/rsbuild.config.ts` | `visactorDedupeAlias`：将 `@visactor/vchart` 及其内嵌 `vrender-core`/`vrender-kits`/`vrender-components`/`vutils` 全部指向 classic 自带的单一副本 |
+| `web/src/lib/vchart.ts` | 新版前端显式注册浏览器环境 `VChart.useRegisters([registerBrowserEnv])` |
+| `web/src/main.tsx` | 入口 side-effect 导入 `@/lib/vchart`，防止被 tree-shaking 丢弃 |
 
 对应提交：
 
 ```text
 724ecece2 fix(web): register VChart browser env to prevent createCanvas crash
-3c2cf2321 fix(web/classic): dedupe vrender to one copy so VChart env registration applies
-7c0cac115 fix(web/classic): dedupe @visactor/vchart so Semi dark chart theme applies
 ```
 
 ### 13. 上游响应语义校验与安全重试
@@ -292,6 +271,26 @@ e8c836d70 fix(web): improve form validation error focus #5163
 ```text
 55ac05637 fix(relay): reject semantically empty upstream responses
 ```
+
+### 14. 音频格式魔数识别与 AMR 时长解析
+
+修复客户端上传内容与文件扩展名不一致时，token 预估阶段按错误格式解析音频并返回 `count_token_failed` 的问题。
+
+保留行为：
+
+- 读取音频魔数识别 WAV、FLAC、Ogg/Opus、MP4/M4A、AIFF、WebM、AAC、MP3、AMR-NB 和 AMR-WB，扩展名只作为无法识别时的回退。
+- AMR-NB/AMR-WB 按帧头和每帧 20ms 计算时长，拒绝非法或截断帧。
+- 转发 multipart 请求时，依据实际音频格式规范化发往上游的文件扩展名和 `Content-Type`。
+- 原始客户端文件名和表单字段只用于客户端侧语义，不因上游规范化而改变。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `common/audio.go` | 音频魔数识别、AMR 时长解析及统一时长入口 |
+| `common/audio_test.go` | 格式识别、AMR-NB/AMR-WB 和错误输入回归测试 |
+| `relay/channel/openai/adaptor.go` | 上游 multipart 文件名和 MIME 类型规范化 |
+| `relay/channel/openai/audio_request_test.go` | 错扩展名、AMR 和客户端表单保持测试 |
 
 ## 已移除或不再保留的改动
 
@@ -334,4 +333,4 @@ Redis Sentinel
 
 ## 当前工作区状态说明
 
-截至 2026-07-23，本次上游空响应语义校验、相关测试、海报删除和本备份文档均已纳入提交；没有为这些改动保留未提交文件。
+截至 2026-07-23，Classic 与桌面壳已拆分到独立仓库，本仓库 Electron 已回归上游，音频魔数/AMR 修复及相关测试已纳入提交。
