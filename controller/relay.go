@@ -74,6 +74,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		relayInfo   *relaycommon.RelayInfo
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -90,6 +91,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			if relayInfo != nil && relayInfo.IsStream && c.Writer.Written() {
+				helper.StreamError(c, relayFormat, newAPIError)
+				return
+			}
+			if c.Writer.Written() {
+				return
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -117,7 +125,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
@@ -190,6 +198,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		if relayInfo.RetryIndex > 0 {
+			relayInfo.ResetResponseStateForRetry()
+		}
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
@@ -324,6 +335,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
 	if openaiErr == nil {
+		return false
+	}
+	if c != nil && c.Writer != nil && c.Writer.Written() {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {

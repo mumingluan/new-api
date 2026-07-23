@@ -34,6 +34,7 @@ type TextResponse struct {
 type OpenAITextResponseChoice struct {
 	Index        int `json:"index"`
 	Message      `json:"message"`
+	Text         string `json:"text,omitempty"`
 	FinishReason string `json:"finish_reason"`
 }
 
@@ -89,6 +90,9 @@ type ChatCompletionsStreamResponseChoiceDelta struct {
 	Content          *string            `json:"content,omitempty"`
 	ReasoningContent *string            `json:"reasoning_content,omitempty"`
 	Reasoning        *string            `json:"reasoning,omitempty"`
+	Refusal          *string            `json:"refusal,omitempty"`
+	Audio            json.RawMessage    `json:"audio,omitempty"`
+	FunctionCall     json.RawMessage    `json:"function_call,omitempty"`
 	Role             string             `json:"role,omitempty"`
 	ToolCalls        []ToolCallResponse `json:"tool_calls,omitempty"`
 }
@@ -366,6 +370,7 @@ func ResponsesArgumentsString(arguments json.RawMessage) string {
 type ResponsesOutputContent struct {
 	Type        string        `json:"type"`
 	Text        string        `json:"text"`
+	Refusal     string        `json:"refusal,omitempty"`
 	Annotations []interface{} `json:"annotations"`
 }
 

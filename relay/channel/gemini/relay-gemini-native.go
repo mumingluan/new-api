@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/responsevalidator"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
@@ -35,18 +36,18 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
+		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason))
+		return nil, types.NewOpenAIError(errors.New("request blocked by Gemini API: "+*geminiResponse.PromptFeedback.BlockReason), types.ErrorCodePromptBlocked, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 
-	// 检查是否有候选返回，如果没有则返回错误以触发重试
-	if len(geminiResponse.Candidates) == 0 {
-		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
-			// 记录拒绝原因（上游功能）
-			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason))
-			return nil, types.NewOpenAIError(errors.New("request blocked by Gemini API: "+*geminiResponse.PromptFeedback.BlockReason), types.ErrorCodePromptBlocked, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-		} else {
-			// 记录空响应原因（上游功能）
-			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "gemini_empty_candidates")
-			return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
-		}
+	validity, validationErr := responsevalidator.GeminiResponse(&geminiResponse)
+	if validationErr != nil {
+		return nil, types.NewOpenAIError(validationErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if !validity.Valid() {
+		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "gemini_empty_candidates")
+		return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 
 	// 计算使用量（基于 UsageMetadata）
@@ -91,7 +92,28 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	helper.SetEventStreamHeaders(c)
 
+	var validationErr error
+	var validationAPIError *types.NewAPIError
+	sawTerminal := false
 	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
+			validationAPIError = types.NewOpenAIError(
+				errors.New("request blocked by Gemini API: "+*geminiResponse.PromptFeedback.BlockReason),
+				types.ErrorCodePromptBlocked,
+				http.StatusBadRequest,
+				types.ErrOptionWithSkipRetry(),
+			)
+			return false
+		}
+		validity, currentErr := responsevalidator.GeminiResponse(geminiResponse)
+		if currentErr != nil {
+			validationErr = currentErr
+			return false
+		}
+		sawTerminal = sawTerminal || validity.Terminal
+		if !validity.Valid() {
+			return true
+		}
 		err := helper.StringData(c, data)
 		if err != nil {
 			logger.LogError(c, "failed to write stream data: "+err.Error())
@@ -104,9 +126,18 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return usage, err
 	}
+	if validationAPIError != nil {
+		return nil, validationAPIError
+	}
+	if validationErr != nil {
+		return nil, types.NewOpenAIError(validationErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
 
 	if info.SendResponseCount == 0 {
 		return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	}
+	if !sawTerminal {
+		return nil, types.NewOpenAIError(errors.New("Gemini stream ended before a terminal finish reason"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 
 	return usage, nil

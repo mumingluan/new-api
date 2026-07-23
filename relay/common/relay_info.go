@@ -193,6 +193,28 @@ type RelayInfo struct {
 	*TaskRelayInfo
 }
 
+func (info *RelayInfo) ResetResponseStateForRetry() {
+	if info == nil {
+		return
+	}
+	info.SendResponseCount = 0
+	info.ReceivedResponseCount = 0
+	info.StreamStatus = nil
+	info.FirstResponseTime = time.Time{}
+	info.isFirstResponse = true
+	info.ThinkingContentInfo = ThinkingContentInfo{}
+	if info.ClaudeConvertInfo != nil {
+		info.ClaudeConvertInfo = &ClaudeConvertInfo{LastMessagesType: LastMessageTypeNone}
+	}
+	if info.ResponsesUsageInfo != nil {
+		for _, tool := range info.ResponsesUsageInfo.BuiltInTools {
+			if tool != nil {
+				tool.CallCount = 0
+			}
+		}
+	}
+}
+
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)

@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/responsevalidator"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
@@ -32,6 +33,13 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+	validity, validationErr := responsevalidator.ResponsesResponse(&responsesResponse)
+	if validationErr != nil {
+		return nil, types.NewOpenAIError(validationErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if !validity.Valid() {
+		return nil, types.NewOpenAIError(fmt.Errorf("empty response from Responses API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 
 	if responsesResponse.HasImageGenerationCall() {
@@ -78,6 +86,14 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var streamErr *types.NewAPIError
+	streamState := responsevalidator.NewResponsesStreamState()
+	type pendingEvent struct {
+		data     string
+		response dto.ResponsesStreamResponse
+	}
+	pending := make([]pendingEvent, 0, 3)
+	streamCommitted := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -85,10 +101,28 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
-			sr.Error(err)
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			sr.Stop(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
+		if err := streamState.Observe(&streamResponse); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			sr.Stop(err)
+			return
+		}
+		if !streamCommitted {
+			pending = append(pending, pendingEvent{data: data, response: streamResponse})
+			if !streamState.Valid() {
+				return
+			}
+			for _, item := range pending {
+				sendResponsesStreamData(c, item.response, item.data)
+			}
+			pending = nil
+			streamCommitted = true
+		} else {
+			sendResponsesStreamData(c, streamResponse, data)
+		}
 		switch streamResponse.Type {
 		case "response.completed":
 			if streamResponse.Response != nil {
@@ -129,6 +163,21 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
+	if err := streamState.Validate(); err != nil {
+		code := types.ErrorCodeBadResponse
+		if !streamState.Valid() {
+			code = types.ErrorCodeEmptyResponse
+		}
+		return nil, types.NewOpenAIError(err, code, http.StatusInternalServerError)
+	}
+	if !streamCommitted {
+		for _, item := range pending {
+			sendResponsesStreamData(c, item.response, item.data)
+		}
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量

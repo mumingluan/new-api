@@ -15,6 +15,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/reasonmap"
+	"github.com/QuantumNous/new-api/relay/responsevalidator"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
@@ -910,22 +911,63 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		Usage:        &dto.Usage{},
 	}
 	var streamErr *types.NewAPIError
-	var hasValidResponse bool
+	streamState := responsevalidator.NewClaudeStreamState()
+	pendingData := make([]string, 0, 3)
+	streamCommitted := false
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		streamErr = HandleStreamResponseData(c, info, claudeInfo, data)
-		if streamErr != nil {
+		var event dto.ClaudeResponse
+		if err := common.UnmarshalJsonStr(data, &event); err != nil {
+			streamErr = types.NewError(err, types.ErrorCodeBadResponseBody)
+			sr.Stop(err)
+			return
+		}
+		if claudeError := event.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
+			streamErr = types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 			sr.Stop(streamErr)
 			return
 		}
-		hasValidResponse = true
+		if err := streamState.Observe(&event); err != nil {
+			streamErr = types.NewError(err, types.ErrorCodeBadResponseBody)
+			sr.Stop(err)
+			return
+		}
+		if !streamCommitted {
+			pendingData = append(pendingData, data)
+			if !streamState.Valid() {
+				return
+			}
+			for _, pending := range pendingData {
+				streamErr = HandleStreamResponseData(c, info, claudeInfo, pending)
+				if streamErr != nil {
+					sr.Stop(streamErr)
+					return
+				}
+			}
+			pendingData = nil
+			streamCommitted = true
+			return
+		}
+		streamErr = HandleStreamResponseData(c, info, claudeInfo, data)
+		if streamErr != nil {
+			sr.Stop(streamErr)
+		}
 	})
 	if streamErr != nil {
 		return nil, streamErr
 	}
-
-	// 检查流式响应是否收到有效内容，如果没有则返回错误以触发重试
-	if !hasValidResponse {
-		return nil, types.NewOpenAIError(fmt.Errorf("empty response from Claude API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	if err := streamState.Validate(); err != nil {
+		code := types.ErrorCodeBadResponse
+		if !streamState.Valid() {
+			code = types.ErrorCodeEmptyResponse
+		}
+		return nil, types.NewOpenAIError(err, code, http.StatusInternalServerError)
+	}
+	if !streamCommitted {
+		for _, pending := range pendingData {
+			if apiErr := HandleStreamResponseData(c, info, claudeInfo, pending); apiErr != nil {
+				return nil, apiErr
+			}
+		}
 	}
 
 	HandleStreamFinalResponse(c, info, claudeInfo)
@@ -943,9 +985,11 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	}
 	// 记录拒绝原因（上游功能）
 	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
-	// 检查是否有有效的内容返回，如果没有则返回错误以触发重试
-	stopReason := strings.TrimSpace(claudeResponse.StopReason)
-	if len(claudeResponse.Content) == 0 && claudeResponse.Completion == "" && stopReason != "tool_use" && stopReason != "tool_calls" {
+	validity, validationErr := responsevalidator.ClaudeResponse(&claudeResponse)
+	if validationErr != nil {
+		return types.NewOpenAIError(validationErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if !validity.Valid() {
 		return types.NewOpenAIError(fmt.Errorf("empty response from Claude API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 	if claudeInfo.Usage == nil {

@@ -14,6 +14,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/responsevalidator"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
@@ -119,30 +120,95 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var usage = &dto.Usage{}
 	var lastStreamData string
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+	var streamErr *types.NewAPIError
+	streamState := responsevalidator.NewOpenAIStreamState()
+	pendingData := make([]string, 0, 2)
+	streamCommitted := false
 
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if lastStreamData != "" {
-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Error(err)
+		var chunk dto.ChatCompletionsStreamResponse
+		if info.RelayMode == relayconstant.RelayModeCompletions {
+			var completionChunk dto.CompletionsStreamResponse
+			if err := common.UnmarshalJsonStr(data, &completionChunk); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				sr.Stop(err)
+				return
+			}
+			if err := streamState.ObserveCompletion(&completionChunk); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				sr.Stop(err)
+				return
+			}
+			processCompletionsStreamResponse(completionChunk, &responseTextBuilder)
+		} else {
+			if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				sr.Stop(err)
+				return
+			}
+			if err := streamState.Observe(&chunk); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				sr.Stop(err)
+				return
+			}
+			if err := ProcessStreamResponse(chunk, &responseTextBuilder, &toolCount); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				sr.Stop(err)
+				return
 			}
 		}
-		if len(data) > 0 {
-			// 对音频模型，保存倒数第二个stream data
-			if isAudioModel && lastStreamData != "" {
-				secondLastStreamData = lastStreamData
-			}
 
-			lastStreamData = data
-			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
-				logger.LogError(c, "error processing stream token data: "+err.Error())
-				sr.Error(err)
+		if isAudioModel && lastStreamData != "" {
+			secondLastStreamData = lastStreamData
+		}
+		lastStreamData = data
+		if !streamCommitted {
+			pendingData = append(pendingData, data)
+			if !streamState.Valid() {
+				return
 			}
+			for _, pending := range pendingData {
+				if err := HandleStreamFormat(c, info, pending, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+					sr.Stop(err)
+					return
+				}
+			}
+			pendingData = nil
+			streamCommitted = true
+			return
+		}
+		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			sr.Stop(err)
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
+	done := info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone
+	if err := streamState.Validate(done); err != nil {
+		code := types.ErrorCodeBadResponse
+		if !streamState.Valid() {
+			code = types.ErrorCodeEmptyResponse
+		}
+		return nil, types.NewOpenAIError(err, code, http.StatusInternalServerError)
+	}
+	if !streamCommitted {
+		for _, pending := range pendingData {
+			if err := HandleStreamFormat(c, info, pending, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			}
+		}
+		streamCommitted = true
+		pendingData = nil
+	}
+	if semanticToolCount := streamState.ToolCount(); semanticToolCount > toolCount {
+		toolCount = semanticToolCount
+	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {
@@ -169,23 +235,12 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
 	}
 
-	if info.RelayFormat == types.RelayFormatOpenAI {
-		if shouldSendLastResp {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
-		}
-	}
-
 	if !containStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
-
-	// 检查流式响应是否收到有效内容，如果没有则返回错误以触发重试
-	if lastStreamData == "" && responseTextBuilder.Len() == 0 && !containStreamUsage {
-		return nil, types.NewOpenAIError(fmt.Errorf("empty response from upstream API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
-	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
@@ -226,14 +281,29 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	// 检查是否有有效的 choices 返回，如果没有则返回错误以触发重试
-	// 仅对聊天补全和补全模式检查，嵌入等模式的响应没有 choices 字段
-	if (info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeCompletions) && len(simpleResponse.Choices) == 0 {
+	// Chat/completions must contain semantic output, a complete tool call, or
+	// an explicit filtering/refusal result. Some compatible upstreams return a
+	// Responses API object here, so convert that form before rejecting it.
+	if info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeCompletions {
+		validity, validationErr := responsevalidator.OpenAIChatResponse(&simpleResponse)
+		if validationErr != nil {
+			return nil, types.NewOpenAIError(validationErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if validity.Valid() {
+			goto responseValidated
+		}
 		var responsesResp dto.OpenAIResponsesResponse
 		if respErr := common.Unmarshal(responseBody, &responsesResp); respErr == nil && responsesResp.Object != "" && len(responsesResp.Output) > 0 {
 			chatId := helper.GetResponseID(c)
 			chatResp, usage, convErr := service.ResponsesResponseToChatCompletionsResponse(&responsesResp, chatId)
 			if convErr == nil && chatResp != nil {
+				convertedValidity, validationErr := responsevalidator.OpenAIChatResponse(chatResp)
+				if validationErr != nil {
+					return nil, types.NewOpenAIError(validationErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				}
+				if !convertedValidity.Valid() {
+					return nil, types.NewOpenAIError(fmt.Errorf("converted Responses payload contained no semantic output"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+				}
 				if usage == nil || usage.TotalTokens == 0 {
 					text := service.ExtractOutputTextFromResponses(&responsesResp)
 					usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
@@ -261,6 +331,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.NewOpenAIError(fmt.Errorf("empty response from upstream API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 
+responseValidated:
 	// 记录 content_filter 拒绝原因（上游功能）
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
