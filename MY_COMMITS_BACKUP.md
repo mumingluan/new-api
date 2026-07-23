@@ -1,4 +1,4 @@
-# zch-api 本地修改备份
+# qiqi-api 本地修改备份
 
 本文档记录当前 fork 相对上游基点仍然保留的本地改动。
 
@@ -191,17 +191,7 @@
 | `web/src/features/auth/sign-in/index.tsx` | 登录页增加管理员提示 |
 | `web/src/i18n/locales/*.json` | 补充提示文案翻译 |
 
-### 10. Classic 前端和桌面壳拆分
-
-仓库边界：
-
-- Classic 前端完整源码迁移到独立仓库 `mumingluan/new-api-desktop` 的 `web/classic/`。
-- 独立桌面仓库负责构建 Classic 前端，并保留切换新版/Classic 前端、连接远程后端的桌面逻辑。
-- 本仓库删除 `web/classic/`，`web/` 只保留上游新版前端。
-- 本仓库 `electron/`、Electron 构建工作流以及 `web/package.json`、`web/bun.lock` 均还原为上游版本。
-- 桌面应用及产物名统一为 `New-API-Desktop`。
-
-### 11. 测试稳定性清理
+### 10. 测试稳定性清理
 
 保留行为：
 
@@ -213,30 +203,7 @@
 | ---- | ---- |
 | `service/channel_affinity_usage_cache_test.go` | atomic 唯一测试 key |
 
-### 12. VChart 图表崩溃与深色模式修复
-
-修复新版前端仪表盘图表在生产构建下运行时崩溃（`TypeError: Cannot read properties of undefined (reading 'createCanvas')`）的问题。
-
-保留行为：
-
-- VChart 的浏览器环境注册是带副作用的，但 `@visactor/vchart` 的 `package.json` `sideEffects` 未列出它，生产构建 tree-shaking 会摇掉，运行时没有 env 被激活，`application.global.envContribution` 为 undefined，首个图表 `createCanvas` 崩溃。
-- 改为显式且不可被摇树的 `VChart.useRegisters([registerBrowserEnv])`，在任何图表挂载前注册。
-- Classic 的 VisActor 去重和深色主题修复随 Classic 源码迁移到 `mumingluan/new-api-desktop`，不再属于本仓库差异。
-
-主要文件：
-
-| 文件 | 说明 |
-| ---- | ---- |
-| `web/src/lib/vchart.ts` | 新版前端显式注册浏览器环境 `VChart.useRegisters([registerBrowserEnv])` |
-| `web/src/main.tsx` | 入口 side-effect 导入 `@/lib/vchart`，防止被 tree-shaking 丢弃 |
-
-对应提交：
-
-```text
-724ecece2 fix(web): register VChart browser env to prevent createCanvas crash
-```
-
-### 13. 上游响应语义校验与安全重试
+### 11. 上游响应语义校验与安全重试
 
 修复 OpenAI Chat/Completions/Responses、Claude 和 Gemini 上游返回 HTTP 200、JSON/SSE 外壳合法但没有任何可消费语义输出时，被误当成成功响应并计费的问题，同时覆盖纯工具调用和流式边缘场景。
 
@@ -272,7 +239,7 @@
 55ac05637 fix(relay): reject semantically empty upstream responses
 ```
 
-### 14. 音频格式魔数识别与 AMR 时长解析
+### 12. 音频格式魔数识别与 AMR 时长解析
 
 修复客户端上传内容与文件扩展名不一致时，token 预估阶段按错误格式解析音频并返回 `count_token_failed` 的问题。
 
@@ -291,46 +258,3 @@
 | `common/audio_test.go` | 格式识别、AMR-NB/AMR-WB 和错误输入回归测试 |
 | `relay/channel/openai/adaptor.go` | 上游 multipart 文件名和 MIME 类型规范化 |
 | `relay/channel/openai/audio_request_test.go` | 错扩展名、AMR 和客户端表单保持测试 |
-
-## 已移除或不再保留的改动
-
-### Redis Sentinel 支持
-
-已从当前工作区移除：
-
-- `common/redis.go` 中基于 `REDIS_SENTINEL_ADDRS` 和 `REDIS_SENTINEL_MASTER_NAME` 的 Sentinel 初始化。
-- `redis.NewFailoverClient` / `redis.FailoverOptions` 使用。
-- 仅服务于 Sentinel 配置的 `parseCommaSeparated`、`splitString`、`trimSpace`、`GetEnvOrDefaultInt` 辅助函数。
-- `middleware/rate-limit.go` 中 Sentinel failover 重试和 fail-open 逻辑。
-
-移除后，当前工作区中不再有 Redis Sentinel 专属符号：
-
-```text
-REDIS_SENTINEL_*
-NewFailoverClient
-FailoverOptions
-MasterName
-Sentinel failover
-Redis Sentinel
-```
-
-普通业务代码中的英文 `sentinel value` 或前端占位常量不属于 Redis Sentinel。
-
-### 模型 reasoning effort 后缀透传
-
-不再保留。此前本地曾经让 `-low`、`-medium`、`-high`、`-minimal`、`-max`、`-xhigh` 等模型名后缀原样透传；该策略已撤回，恢复上游自动解析行为。
-
-恢复上游行为的范围：
-
-- Claude adaptive thinking 转换。
-- Gemini thinking level 转换。
-- OpenAI Chat / Responses 的 reasoning effort 解析。
-- Gemini / Vertex upstream model name 的后缀剥离。
-
-### 过期 token 延期后自动启用
-
-不再保留。此前本地曾经在 token 的 `ExpiredTime` 被延长时自动重新启用过期 token；该逻辑已移除，对应测试也已删除。该能力更适合放在外部发卡/授权流程里，而不是 API gateway 内部。
-
-## 当前工作区状态说明
-
-截至 2026-07-23，Classic 与桌面壳已拆分到独立仓库，本仓库 Electron 已回归上游，音频魔数/AMR 修复及相关测试已纳入提交。
