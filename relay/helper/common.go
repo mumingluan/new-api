@@ -137,6 +137,40 @@ func Done(c *gin.Context) {
 	_ = StringData(c, "[DONE]")
 }
 
+// StreamError reports a terminal error after an SSE response has already been
+// committed. At that point the HTTP status cannot be changed and a transparent
+// channel retry would mix two upstream streams.
+func StreamError(c *gin.Context, format types.RelayFormat, apiErr *types.NewAPIError) {
+	if c == nil || apiErr == nil {
+		return
+	}
+	switch format {
+	case types.RelayFormatClaude:
+		payload, err := common.Marshal(map[string]any{
+			"type":  "error",
+			"error": apiErr.ToClaudeError(),
+		})
+		if err == nil {
+			c.Render(-1, common.CustomEvent{Data: "event: error\n"})
+			c.Render(-1, common.CustomEvent{Data: "data: " + string(payload)})
+			_ = FlushWriter(c)
+		}
+	case types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
+		payload, err := common.Marshal(map[string]any{
+			"type":  "error",
+			"error": apiErr.ToOpenAIError(),
+		})
+		if err == nil {
+			c.Render(-1, common.CustomEvent{Data: "event: error\n"})
+			c.Render(-1, common.CustomEvent{Data: "data: " + string(payload)})
+			_ = FlushWriter(c)
+		}
+	default:
+		_ = ObjectData(c, map[string]any{"error": apiErr.ToOpenAIError()})
+		Done(c)
+	}
+}
+
 func WssString(c *gin.Context, ws *websocket.Conn, str string) error {
 	if ws == nil {
 		logger.LogError(c, "websocket connection is nil")

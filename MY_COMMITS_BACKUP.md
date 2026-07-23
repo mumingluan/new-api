@@ -8,7 +8,7 @@
 e8c836d70 fix(web): improve form validation error focus #5163
 ```
 
-更新时间：2026-06-25。已逐个查看当前 fork 独有提交，并按“当前工作区最终仍保留的差异”重新整理。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-07-23。已逐个查看当前 fork 独有提交，并按“当前工作区最终仍保留的差异”重新整理。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -226,6 +226,73 @@ e8c836d70 fix(web): improve form validation error focus #5163
 | ---- | ---- |
 | `service/channel_affinity_usage_cache_test.go` | atomic 唯一测试 key |
 
+### 12. VChart 图表崩溃与深色模式修复
+
+修复仪表盘图表在生产构建下运行时崩溃（`TypeError: Cannot read properties of undefined (reading 'createCanvas')`）以及修好后图表深色模式不生效的问题。根因是 VisActor 系列包在依赖树里存在多份物理副本，导致多个互不相通的单例。
+
+保留行为：
+
+- **浏览器环境注册（两个前端）**：VChart 的浏览器环境注册是带副作用的，但 `@visactor/vchart` 的 `package.json` `sideEffects` 未列出它，生产构建 tree-shaking 会摇掉，运行时没有 env 被激活，`application.global.envContribution` 为 undefined，首个图表 `createCanvas` 崩溃。改为显式且不可被摇树的 `VChart.useRegisters([registerBrowserEnv])`，在任何图表挂载前注册。
+- **vrender 单例去重（classic）**：classic 依赖树里 `@visactor/vrender-core`（+`vrender-kits`/`vutils`，均 0.17.17）存在两份物理副本（`react-vchart/` 与 `vchart/` 各嵌套一份）。`vrender-core` 通过 `application.global` 维护渲染环境单例，多份副本 = 多个互不相通的单例，`registerBrowserEnv` 注册到一份、`<VChart>` 渲染读另一份，env 仍为 undefined。通过 rsbuild alias 强制指向 classic 自带 vchart 内嵌的那份 0.17.17。
+- **vchart / ThemeManager 单例去重（classic）**：`ThemeManager` 挂在 `@visactor/vchart` 类上，classic 树里有两份 `@visactor/vchart`——应用经 `react-vchart` → classic 的 vchart 渲染，而 `@visactor/vchart-semi-theme` 内部 `import VChart from '@visactor/vchart'` 命中它自己嵌套的另一份。`initVChartSemiTheme` 把 `semiDesignDark` 注册/切换到后者的 ThemeManager，渲染读前者，导致深色主题不生效（图表只显示浅色）。将 `@visactor/vchart` 本身也 alias 到 classic 自带的那份（1.8.11），使渲染引擎、浏览器环境、Semi 主题共用同一组单例。
+- 深色链路：classic Theme context 设置 `document.body[theme-mode="dark"]` → `vchart-semi-theme` observer（`isWatchingThemeSwitch:true`）→ `setCurrentTheme('semiDesignDark')` → 图表经同一 ThemeManager 渲染。
+- **注意**：alias 不能指向 workspace 顶层 hoist 的 `@visactor/vchart` 2.1.2 / `vrender-core` 1.1.4——那是给 default 新前端 vchart 2.x 用的，与 classic 的 1.8.11 大版本不兼容。
+
+构建产物自检（classic）：`getCommonCanvas`、`isBrowserBound`、`setActiveEnvContribution`、`setCurrentTheme` 在 `dist/static/js/*.js` 中应各只出现一次。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `web/default/src/lib/vchart.ts` | default 前端显式注册浏览器环境 `VChart.useRegisters([registerBrowserEnv])` |
+| `web/default/src/main.tsx` | 入口 side-effect 导入 `@/lib/vchart`，防止被 tree-shaking 丢弃 |
+| `web/classic/src/constants/dashboard.constants.js` | classic 前端显式注册浏览器环境 |
+| `web/classic/rsbuild.config.ts` | `visactorDedupeAlias`：将 `@visactor/vchart` 及其内嵌 `vrender-core`/`vrender-kits`/`vrender-components`/`vutils` 全部指向 classic 自带的单一副本 |
+
+对应提交：
+
+```text
+724ecece2 fix(web): register VChart browser env to prevent createCanvas crash
+3c2cf2321 fix(web/classic): dedupe vrender to one copy so VChart env registration applies
+7c0cac115 fix(web/classic): dedupe @visactor/vchart so Semi dark chart theme applies
+```
+
+### 13. 上游响应语义校验与安全重试
+
+修复 OpenAI Chat/Completions/Responses、Claude 和 Gemini 上游返回 HTTP 200、JSON/SSE 外壳合法但没有任何可消费语义输出时，被误当成成功响应并计费的问题，同时覆盖纯工具调用和流式边缘场景。
+
+保留行为：
+
+- 统一按“语义输出”而不是响应体非空判断成功：文本、reasoning、refusal/content filter、音频/图片/代码结果和结构完整的工具调用均可构成有效输出；只有 role、usage、ping、start/stop、空 candidate/choice/content 等协议外壳不算输出。
+- OpenAI Chat/Completions 同时校验非流式和流式响应；工具调用必须有函数名，聚合后的 arguments 必须是完整 JSON，并正确统计并行工具调用。
+- OpenAI Responses API 校验 `completed`/`incomplete`/`failed` 状态、输出项及 function/custom tool call；流式工具调用按 item id 与 output index 关联，拒绝缺名或参数截断。
+- Claude 不再把任意合法 SSE 事件或 `stop_reason=tool_use` 的空 content 当作成功；工具流必须有 `tool_use` 块、完整 JSON 输入以及终止事件。
+- Gemini 拒绝空 candidate、空 parts、只有 usage 的流片段和无终止原因的截断流；安全过滤仍按明确拒绝处理，纯 function call 保持有效。
+- 在首个语义输出前缓存流式协议外壳，使真正的空回仍可在未写入客户端时触发渠道间重试；一旦响应已经写出则禁止切换渠道，避免把两个上游流拼接到同一客户端响应，并发送对应协议的终止错误事件。
+- 每次渠道重试前重置 response count、stream status、首包时间、thinking/Claude 转换状态和 Responses 内置工具计数，防止上一渠道状态污染下一渠道。
+- 删除不再使用的 40k stars light 海报 PNG/SVG。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `relay/responsevalidator/validator.go` | OpenAI、Responses、Claude、Gemini 的统一语义与终止状态校验 |
+| `relay/channel/openai/relay-openai.go` | Chat/Completions 非流式及 SSE 校验、首个语义输出前缓存 |
+| `relay/channel/openai/relay_responses.go` | Responses API 非流式及事件流校验 |
+| `relay/channel/claude/relay-claude.go` | Claude 消息及事件流校验 |
+| `relay/channel/gemini/relay-gemini.go` | Gemini 转 OpenAI 响应的空回、工具调用及终止校验 |
+| `relay/channel/gemini/relay-gemini-native.go` | Gemini 原生响应的对应校验 |
+| `controller/relay.go` | 已写响应禁止跨渠道重试，流内返回协议错误 |
+| `relay/common/relay_info.go` | 渠道重试前清理响应状态 |
+| `relay/helper/common.go` | OpenAI、Responses、Claude SSE 终止错误输出 |
+| `relay/responsevalidator/validator_test.go` | 空外壳、纯工具调用、参数截断、过滤和终止状态测试 |
+
+对应提交：
+
+```text
+55ac05637 fix(relay): reject semantically empty upstream responses
+```
+
 ## 已移除或不再保留的改动
 
 ### Redis Sentinel 支持
@@ -267,8 +334,4 @@ Redis Sentinel
 
 ## 当前工作区状态说明
 
-截至本文档更新时，当前工作区包含三类未提交改动：
-
-- 移除 Redis Sentinel 支持：`common/redis.go`
-- 移除 Sentinel failover 重试逻辑：`middleware/rate-limit.go`
-- 更新本地修改备份文档：`MY_COMMITS_BACKUP.md`
+截至 2026-07-23，本次上游空响应语义校验、相关测试、海报删除和本备份文档均已纳入提交；没有为这些改动保留未提交文件。

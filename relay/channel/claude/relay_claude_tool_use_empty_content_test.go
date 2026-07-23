@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandleClaudeResponseData_AllowsToolUseStopReasonWithEmptyContent(t *testing.T) {
+func TestHandleClaudeResponseData_RejectsToolUseStopReasonWithEmptyContent(t *testing.T) {
 	t.Parallel()
 
 	gin.SetMode(gin.TestMode)
@@ -38,5 +38,6 @@ func TestHandleClaudeResponseData_AllowsToolUseStopReasonWithEmptyContent(t *tes
 
 	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
 	apiErr := HandleClaudeResponseData(c, info, claudeInfo, resp, data)
-	require.Nil(t, apiErr)
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodeEmptyResponse, apiErr.GetErrorCode())
 }
