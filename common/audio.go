@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/abema/go-mp4"
 	"github.com/go-audio/aiff"
@@ -16,12 +17,110 @@ import (
 	"github.com/yapingcat/gomedia/go-codec"
 )
 
+type AudioFormat struct {
+	Extension string
+	MIMEType  string
+}
+
+// DetectAudioFormat identifies an audio container from its magic bytes.
+// The declared extension is used only when the content is not recognizable.
+func DetectAudioFormat(f io.ReadSeeker, declaredExt string) AudioFormat {
+	fallback := audioFormatFromExtension(declaredExt)
+	position, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return fallback
+	}
+	defer func() {
+		_, _ = f.Seek(position, io.SeekStart)
+	}()
+
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return fallback
+	}
+	header := make([]byte, 64)
+	n, err := f.Read(header)
+	if err != nil && err != io.EOF {
+		return fallback
+	}
+	header = header[:n]
+
+	switch {
+	case len(header) >= 9 && string(header[:9]) == "#!AMR-WB\n":
+		return AudioFormat{Extension: ".amr", MIMEType: "audio/amr-wb"}
+	case len(header) >= 6 && string(header[:6]) == "#!AMR\n":
+		return AudioFormat{Extension: ".amr", MIMEType: "audio/amr"}
+	case len(header) >= 12 && string(header[:4]) == "RIFF" && string(header[8:12]) == "WAVE":
+		return AudioFormat{Extension: ".wav", MIMEType: "audio/wav"}
+	case len(header) >= 4 && string(header[:4]) == "fLaC":
+		return AudioFormat{Extension: ".flac", MIMEType: "audio/flac"}
+	case len(header) >= 4 && string(header[:4]) == "OggS":
+		if strings.Contains(string(header), "OpusHead") {
+			return AudioFormat{Extension: ".opus", MIMEType: "audio/opus"}
+		}
+		return AudioFormat{Extension: ".ogg", MIMEType: "audio/ogg"}
+	case len(header) >= 12 && string(header[4:8]) == "ftyp":
+		if fallback.Extension == ".m4a" {
+			return fallback
+		}
+		return AudioFormat{Extension: ".mp4", MIMEType: "audio/mp4"}
+	case len(header) >= 12 && string(header[:4]) == "FORM" &&
+		(string(header[8:12]) == "AIFF" || string(header[8:12]) == "AIFC"):
+		return AudioFormat{Extension: ".aiff", MIMEType: "audio/aiff"}
+	case len(header) >= 4 && binary.BigEndian.Uint32(header[:4]) == 0x1A45DFA3:
+		return AudioFormat{Extension: ".webm", MIMEType: "audio/webm"}
+	case len(header) >= 2 && header[0] == 0xff && header[1]&0xf6 == 0xf0:
+		return AudioFormat{Extension: ".aac", MIMEType: "audio/aac"}
+	case len(header) >= 3 && string(header[:3]) == "ID3":
+		return AudioFormat{Extension: ".mp3", MIMEType: "audio/mpeg"}
+	case len(header) >= 2 && header[0] == 0xff && header[1]&0xe0 == 0xe0:
+		return AudioFormat{Extension: ".mp3", MIMEType: "audio/mpeg"}
+	default:
+		return fallback
+	}
+}
+
+func audioFormatFromExtension(ext string) AudioFormat {
+	ext = strings.ToLower(strings.TrimSpace(ext))
+	if ext != "" && !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	switch ext {
+	case ".mp3":
+		return AudioFormat{Extension: ext, MIMEType: "audio/mpeg"}
+	case ".wav":
+		return AudioFormat{Extension: ext, MIMEType: "audio/wav"}
+	case ".flac":
+		return AudioFormat{Extension: ext, MIMEType: "audio/flac"}
+	case ".m4a", ".mp4":
+		return AudioFormat{Extension: ext, MIMEType: "audio/mp4"}
+	case ".ogg", ".oga":
+		return AudioFormat{Extension: ext, MIMEType: "audio/ogg"}
+	case ".opus":
+		return AudioFormat{Extension: ext, MIMEType: "audio/opus"}
+	case ".aiff", ".aif", ".aifc":
+		return AudioFormat{Extension: ext, MIMEType: "audio/aiff"}
+	case ".webm":
+		return AudioFormat{Extension: ext, MIMEType: "audio/webm"}
+	case ".aac":
+		return AudioFormat{Extension: ext, MIMEType: "audio/aac"}
+	case ".amr":
+		return AudioFormat{Extension: ext, MIMEType: "audio/amr"}
+	case ".awb":
+		return AudioFormat{Extension: ext, MIMEType: "audio/amr-wb"}
+	default:
+		return AudioFormat{Extension: ext, MIMEType: "application/octet-stream"}
+	}
+}
+
 // GetAudioDuration 使用纯 Go 库获取音频文件的时长（秒）。
 // 它不再依赖外部的 ffmpeg 或 ffprobe 程序。
 func GetAudioDuration(ctx context.Context, f io.ReadSeeker, ext string) (duration float64, err error) {
-	SysLog(fmt.Sprintf("GetAudioDuration: ext=%s", ext))
-	// 根据文件扩展名选择解析器
-	switch ext {
+	format := DetectAudioFormat(f, ext)
+	SysLog(fmt.Sprintf("GetAudioDuration: declared_ext=%s, detected_ext=%s", ext, format.Extension))
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return 0, errors.Wrap(err, "failed to seek audio file")
+	}
+	switch format.Extension {
 	case ".mp3":
 		duration, err = getMP3Duration(f)
 	case ".wav":
@@ -41,11 +140,72 @@ func GetAudioDuration(ctx context.Context, f io.ReadSeeker, ext string) (duratio
 		duration, err = getWebMDuration(f)
 	case ".aac":
 		duration, err = getAACDuration(f)
+	case ".amr", ".awb":
+		duration, err = getAMRDuration(f)
 	default:
-		return 0, fmt.Errorf("unsupported audio format: %s", ext)
+		return 0, fmt.Errorf("unsupported audio format: %s", format.Extension)
 	}
 	SysLog(fmt.Sprintf("GetAudioDuration: duration=%f", duration))
 	return duration, err
+}
+
+// getAMRDuration parses AMR-NB and AMR-WB storage frames.
+// Both formats represent 20 milliseconds of audio per frame.
+func getAMRDuration(r io.ReadSeeker) (float64, error) {
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return 0, errors.Wrap(err, "failed to seek amr file")
+	}
+
+	header := make([]byte, 9)
+	n, err := r.Read(header)
+	if err != nil && err != io.EOF {
+		return 0, errors.Wrap(err, "failed to read amr header")
+	}
+	header = header[:n]
+
+	var frameSizes [16]int
+	var dataOffset int64
+	switch {
+	case len(header) >= 9 && string(header[:9]) == "#!AMR-WB\n":
+		frameSizes = [16]int{17, 23, 32, 36, 40, 46, 50, 58, 60, 5, -1, -1, -1, -1, 0, 0}
+		dataOffset = 9
+	case len(header) >= 6 && string(header[:6]) == "#!AMR\n":
+		frameSizes = [16]int{12, 13, 15, 17, 19, 20, 26, 31, 5, -1, -1, -1, -1, -1, -1, 0}
+		dataOffset = 6
+	default:
+		return 0, errors.New("invalid amr file")
+	}
+	if _, err := r.Seek(dataOffset, io.SeekStart); err != nil {
+		return 0, errors.Wrap(err, "failed to seek amr frames")
+	}
+
+	frameCount := int64(0)
+	frameHeader := make([]byte, 1)
+	for {
+		_, err := io.ReadFull(r, frameHeader)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to read amr frame header")
+		}
+
+		frameType := int((frameHeader[0] >> 3) & 0x0f)
+		payloadSize := frameSizes[frameType]
+		if payloadSize < 0 {
+			return 0, fmt.Errorf("invalid amr frame type: %d", frameType)
+		}
+		if payloadSize > 0 {
+			if _, err := io.CopyN(io.Discard, r, int64(payloadSize)); err != nil {
+				return 0, errors.Wrap(err, "truncated amr frame")
+			}
+		}
+		frameCount++
+	}
+	if frameCount == 0 {
+		return 0, errors.New("amr file contains no frames")
+	}
+	return float64(frameCount) * 0.02, nil
 }
 
 // getMP3Duration 解析 MP3 文件以获取时长。

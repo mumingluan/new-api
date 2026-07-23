@@ -1,270 +1,81 @@
-# New API Desktop Shell
+# New API Electron Desktop App
 
-## 中文说明
+This directory contains the Electron wrapper for New API, providing a native desktop application with system tray support for Windows, macOS, and Linux.
 
-这是 New API 的 Electron 桌面壳。它不会启动或打包 Go 后端，而是在本地启动一个轻量代理服务，加载已经构建好的 New API 前端资源，并把 API 请求转发到用户配置的远程 New API 后端实例。
+## Prerequisites
 
-### 功能
+### 1. Go Binary (Required)
+The Electron app requires the compiled Go binary to function. You have two options:
 
-- 配置任意 New API 后端地址。
-- 管理多个后端实例。
-- 从托盘菜单为任意实例启动新版前端或经典前端。
-- 支持同一实例打开多个窗口，也支持多个实例同时打开。
-- 支持交互式登录和 Access token 登录。
-- 已保存的 Access token 不会在设置界面明文显示；验证和保存时可继续复用。
-- 退出应用时保存仍打开的前端窗口，下次启动自动恢复。
-- 前端窗口标题保留实例名称后缀，便于区分窗口。
-- 支持常用桌面快捷键：
-  - `F5` / `Ctrl+R`：刷新
-  - `F12` / `Ctrl+Shift+I`：开发者工具
-- 前端窗口右键支持复制、剪切、粘贴、全选等常用操作。
-
-### 目录结构
-
-```text
-electron/
-  main.js                 Electron 主进程、本地代理服务、多窗口管理
-  preload.js              安全 IPC bridge
-  desktop/                桌面端设置页面
-  package.json            Electron 脚本与 electron-builder 配置
-  dist/                   构建输出目录，已被 git 忽略
-```
-
-### 准备 New API 前端
-
-桌面端打包时需要准备 New API 的两个前端构建产物：
-
-```text
-web/default/dist
-web/classic/dist
-```
-
-可以在仓库根目录的前端项目中自行构建，也可以把已经构建好的产物放到上述位置。
-
-如果当前仓库包含 `web/default` 和 `web/classic`，可以执行：
-
+**Option A: Use existing binary (without Go installed)**
 ```bash
-cd electron
-npm run build:frontends
+# If you have a pre-built binary (e.g., new-api-macos)
+cp ../new-api-macos ../new-api
 ```
 
-这个命令会依次构建：
+**Option B: Build from source (requires Go)**
+TODO
 
-```text
-web/default
-web/classic
-```
-
-### 安装依赖
-
+### 2. Electron Dependencies
 ```bash
 cd electron
 npm install
 ```
 
-### 开发运行
+## Development
 
+Start the backend, the frontend, and Electron in separate terminals:
 ```bash
-cd electron
-npm run start-app
+# Repository root
+go run main.go
+
+# Repository root
+make dev-web
+
+# electron/
+npm run dev-app
 ```
 
-开发运行时，桌面壳会从本地的 `web/default/dist` 和 `web/classic/dist` 加载前端资源。
+This will:
+- Use the Go backend on port 3000
+- Use the Rsbuild frontend development server on port 5173
+- Open an Electron window with DevTools enabled
+- Create a system tray icon (menu bar on macOS)
+- Store database in `../data/new-api.db`
 
-### 构建
+## Building for Production
 
-构建 Windows 版本：
-
+### Quick Build
 ```bash
-cd electron
-npm run build:win
-```
+# From electron/, build the frontend, Go binary, and desktop package
+./build.sh
 
-构建当前平台版本：
-
-```bash
-cd electron
+# Or package an existing binary for the current platform
 npm run build
+
+# Platform-specific builds
+npm run build:mac    # Creates .dmg and .zip
+npm run build:win    # Creates .exe installer
+npm run build:linux  # Creates .AppImage and .deb
 ```
 
-构建产物输出到：
+### Build Output
+- Built applications are in `electron/dist/`
+- macOS: `.dmg` (installer) and `.zip` (portable)
+- Windows: `.exe` (installer) and portable exe
+- Linux: `.AppImage` and `.deb`
 
-```text
-electron/dist
+## Configuration
+
+### Port
+Default port is 3000. To change, edit `main.js`:
+```javascript
+const PORT = 3000; // Change to desired port
 ```
 
-Windows 构建产物包括：
-
-```text
-electron/dist/New-API-App Setup 1.0.0.exe
-electron/dist/New-API-App 1.0.0.exe
-electron/dist/win-unpacked/
-```
-
-### 配置文件
-
-桌面端配置保存在 Electron 的 `userData` 目录中，文件名为：
-
-```text
-desktop-config.json
-```
-
-Windows 常见路径：
-
-```text
-%APPDATA%/new-api-electron/desktop-config.json
-```
-
-主要字段：
-
-- `instances`：后端实例列表。
-- `openWindows`：退出前仍打开、下次启动需要恢复的前端窗口。
-- `desktopLanguage`：桌面壳语言。
-- `updateFeedUrl`：可选的自动更新地址。
-
-### Git 忽略
-
-以下目录属于构建产物，不应提交到 git：
-
-```text
-electron/dist*
-web/default/dist
-web/classic/dist
-```
-
-### 说明
-
-- 桌面壳通过 localhost 提供同源前端页面，并代理请求到远程后端。
-- Access token 模式下不会把浏览器 Cookie 转发到后端，避免被后端误判为过期会话。
-- Access token 模式下会对 `/api/user/passkey` 状态查询做兼容处理，避免 Passkey 探测触发登录跳转。
-- OAuth / Passkey 的实际能力仍取决于后端配置和桌面 Chromium 环境支持。
-
-## English
-
-This is the Electron desktop shell for New API. It does not start or bundle a Go backend. Instead, it serves prebuilt New API frontend assets locally and proxies API requests to one or more remote New API backend instances configured by the user.
-
-### Features
-
-- Connect to any New API backend URL.
-- Manage multiple backend instances.
-- Launch the default frontend or classic frontend for any instance from the tray menu.
-- Open multiple windows for the same instance or for different instances.
-- Support interactive login and Access token login.
-- Reuse saved Access tokens without displaying them in the settings UI.
-- Restore open frontend windows after restarting the desktop app.
-- Keep the backend instance name in the frontend window title.
-- Support common shortcuts:
-  - `F5` / `Ctrl+R`: reload
-  - `F12` / `Ctrl+Shift+I`: developer tools
-- Provide copy, cut, paste, and select-all context menu actions.
-
-### Layout
-
-```text
-electron/
-  main.js                 Electron main process, local proxy, window management
-  preload.js              Safe IPC bridge
-  desktop/                Desktop settings UI
-  package.json            Electron scripts and electron-builder config
-  dist/                   Generated build output, ignored by git
-```
-
-### Prepare New API Frontends
-
-The desktop package expects prebuilt New API frontend assets at:
-
-```text
-web/default/dist
-web/classic/dist
-```
-
-If this repository contains `web/default` and `web/classic`, run:
-
-```bash
-cd electron
-npm run build:frontends
-```
-
-You may also copy already built frontend assets into the same locations.
-
-### Install Dependencies
-
-```bash
-cd electron
-npm install
-```
-
-### Development
-
-```bash
-cd electron
-npm run start-app
-```
-
-### Build
-
-Build for Windows:
-
-```bash
-cd electron
-npm run build:win
-```
-
-Build for the current platform:
-
-```bash
-cd electron
-npm run build
-```
-
-Build outputs are written to:
-
-```text
-electron/dist
-```
-
-Windows outputs include:
-
-```text
-electron/dist/New-API-App Setup 1.0.0.exe
-electron/dist/New-API-App 1.0.0.exe
-electron/dist/win-unpacked/
-```
-
-### Configuration
-
-Desktop settings are stored in Electron's `userData` directory:
-
-```text
-desktop-config.json
-```
-
-Typical Windows path:
-
-```text
-%APPDATA%/new-api-electron/desktop-config.json
-```
-
-Key fields:
-
-- `instances`: backend instances.
-- `openWindows`: frontend windows restored on next launch.
-- `desktopLanguage`: desktop shell language.
-- `updateFeedUrl`: optional update feed URL.
-
-### Git Ignore
-
-Generated outputs should stay out of git:
-
-```text
-electron/dist*
-web/default/dist
-web/classic/dist
-```
-
-### Notes
-
-- The shell serves the frontend through localhost and proxies API requests to the selected remote backend.
-- Browser cookies are not forwarded in Access token mode.
-- `/api/user/passkey` status checks are handled defensively in Access token mode to avoid session-login redirects.
-- OAuth and Passkey behavior still depends on backend configuration and Chromium desktop support.
+### Database Location
+- **Development**: `../data/new-api.db` (project directory)
+- **Production**:
+  - macOS: `~/Library/Application Support/New API/data/`
+  - Windows: `%APPDATA%/New API/data/`
+  - Linux: `~/.config/New API/data/`
