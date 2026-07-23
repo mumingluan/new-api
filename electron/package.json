@@ -6,7 +6,7 @@
   "scripts": {
     "start-app": "electron .",
     "dev-app": "cross-env NODE_ENV=development electron .",
-    "build:frontends": "cd ../web/default && bun run build && cd ../classic && bun run build",
+    "build:frontends": "cd ../web && bun run build && cd classic && bun run build",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
@@ -59,7 +59,7 @@
       ],
       "extraResources": [
         {
-          "from": "../web/default/dist",
+          "from": "../web/dist",
           "to": "web/default/dist"
         },
         {
@@ -96,7 +96,7 @@
       ],
       "extraResources": [
         {
-          "from": "../web/default/dist",
+          "from": "../web/dist",
           "to": "web/default/dist"
         },
         {
@@ -134,7 +134,7 @@
       "category": "Development",
       "extraResources": [
         {
-          "from": "../web/default/dist",
+          "from": "../web/dist",
           "to": "web/default/dist"
         },
         {

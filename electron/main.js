@@ -243,6 +243,7 @@ function broadcastConfig() {
 
 function getFrontendDist(flavor) {
   if (app.isPackaged) return path.join(process.resourcesPath, 'web', flavor, 'dist')
+  if (flavor === 'default') return path.join(__dirname, '..', 'web', 'dist')
   return path.join(__dirname, '..', 'web', flavor, 'dist')
 }
 

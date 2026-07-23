@@ -35,13 +35,13 @@ electron/
 桌面端打包时需要准备 New API 的两个前端构建产物：
 
 ```text
-web/default/dist
+web/dist
 web/classic/dist
 ```
 
 可以在仓库根目录的前端项目中自行构建，也可以把已经构建好的产物放到上述位置。
 
-如果当前仓库包含 `web/default` 和 `web/classic`，可以执行：
+如果当前仓库包含 `web` 和 `web/classic`，可以执行：
 
 ```bash
 cd electron
@@ -51,7 +51,7 @@ npm run build:frontends
 这个命令会依次构建：
 
 ```text
-web/default
+web
 web/classic
 ```
 
@@ -69,7 +69,7 @@ cd electron
 npm run start-app
 ```
 
-开发运行时，桌面壳会从本地的 `web/default/dist` 和 `web/classic/dist` 加载前端资源。
+开发运行时，桌面壳会从本地的 `web/dist` 和 `web/classic/dist` 加载前端资源。
 
 ### 构建
 
@@ -128,7 +128,7 @@ Windows 常见路径：
 
 ```text
 electron/dist*
-web/default/dist
+web/dist
 web/classic/dist
 ```
 
@@ -174,11 +174,11 @@ electron/
 The desktop package expects prebuilt New API frontend assets at:
 
 ```text
-web/default/dist
+web/dist
 web/classic/dist
 ```
 
-If this repository contains `web/default` and `web/classic`, run:
+If this repository contains `web` and `web/classic`, run:
 
 ```bash
 cd electron
@@ -258,7 +258,7 @@ Generated outputs should stay out of git:
 
 ```text
 electron/dist*
-web/default/dist
+web/dist
 web/classic/dist
 ```
 
