@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -424,7 +425,30 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 		defer file.Close()
 
-		part, err := writer.CreateFormFile("file", fileHeader.Filename)
+		declaredExt := filepath.Ext(fileHeader.Filename)
+		audioFormat := common.DetectAudioFormat(file, declaredExt)
+		upstreamFilename := fileHeader.Filename
+		if audioFormat.Extension != "" && !strings.EqualFold(declaredExt, audioFormat.Extension) {
+			upstreamFilename = strings.TrimSuffix(fileHeader.Filename, declaredExt) + audioFormat.Extension
+		}
+		contentType := audioFormat.MIMEType
+		if contentType == "" || contentType == "application/octet-stream" {
+			contentType = fileHeader.Header.Get("Content-Type")
+		}
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		logger.LogDebug(c.Request.Context(),
+			"normalized upstream audio file: client_filename=%s, upstream_filename=%s, content_type=%s",
+			fileHeader.Filename, upstreamFilename, contentType)
+
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+			"name":     "file",
+			"filename": upstreamFilename,
+		}))
+		header.Set("Content-Type", contentType)
+		part, err := writer.CreatePart(header)
 		if err != nil {
 			return nil, errors.New("create form file failed")
 		}
