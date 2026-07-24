@@ -780,9 +780,14 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			return errors.New("余额不足")
 		}
 		if requiredQuota > 0 {
-			if err := tx.Model(&User{}).Where("id = ?", userId).
-				Update("quota", gorm.Expr("quota - ?", requiredQuota)).Error; err != nil {
-				return err
+			result := tx.Model(&User{}).
+				Where("id = ? AND quota >= ?", userId, requiredQuota).
+				Update("quota", gorm.Expr("quota - ?", requiredQuota))
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return ErrUserQuotaInsufficient
 			}
 		}
 

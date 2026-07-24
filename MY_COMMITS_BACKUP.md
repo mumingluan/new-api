@@ -8,7 +8,7 @@
 172114422 fix(auth): keep login state on rate-limited or failing token refresh
 ```
 
-更新时间：2026-07-23。已逐个查看当前 fork 独有提交，并按“当前工作区最终仍保留的差异”重新整理。Classic 前端及其 Electron 远程后端壳已迁移到独立仓库 `mumingluan/new-api-desktop`；本仓库的 `web/` 只保留新版前端，`electron/` 与上游保持一致。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-07-24。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。Classic 前端及其 Electron 远程后端壳已迁移到独立仓库 `mumingluan/new-api-desktop`；本仓库的 `web/` 只保留新版前端，`electron/` 与上游保持一致。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -258,3 +258,42 @@
 | `common/audio_test.go` | 格式识别、AMR-NB/AMR-WB 和错误输入回归测试 |
 | `relay/channel/openai/adaptor.go` | 上游 multipart 文件名和 MIME 类型规范化 |
 | `relay/channel/openai/audio_request_test.go` | 错扩展名、AMR 和客户端表单保持测试 |
+
+### 13. 用户与 API Key 额度原子扣减
+
+修复普通 Chat Completions、旧版按次接口和异步任务等计费路径在并发请求下先检查余额、再无条件扣减，可能导致 API Key 或用户余额变成负数的问题。
+
+保留行为：
+
+- 用户钱包扣减使用带 `quota >= 扣费额` 条件的单条数据库更新；并发请求只有余额充足的请求能够成功扣款。
+- 有限额度 API Key 使用带 `remain_quota >= 扣费额` 条件的单条数据库更新，扣减与使用量累计在同一条更新中完成。
+- 无限额度 API Key 只累计 `used_quota`，不再扣减 `remain_quota`；退款时同样保持剩余额度不变。
+- 额度增减不再进入延迟批量更新队列，数据库余额立即生效；Redis 中的 API Key 缓存在变更成功后失效，避免继续读取旧余额。
+- 高于信任额度阈值的请求不再走免预扣旁路，固定高价模型会先预扣完整费用。
+- 钱包计费预检强制读取数据库实时余额，原子扣减失败统一返回额度不足。
+- 使用余额购买订阅时增加原子余额条件，避免并发购买超扣。
+- 管理员覆盖用户额度时拒绝负数，并在成功覆盖后清理用户缓存。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `model/user.go` | 用户额度即时更新和原子非负扣减 |
+| `model/token.go` | 有限/无限 API Key 的原子扣减、退款与缓存失效 |
+| `model/utils.go` | 用户和 API Key 额度不足哨兵错误 |
+| `model/subscription.go` | 余额购买订阅的原子扣减保护 |
+| `service/billing_session.go` | 高价请求预扣保护、实时钱包余额读取和错误映射 |
+| `controller/user.go` | 拒绝管理员将用户额度覆盖为负数 |
+
+测试：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `model/quota_atomic_test.go` | 用户/API Key 并发扣减、无限额度扣费与退款 |
+| `service/billing_session_trust_test.go` | 高于信任阈值的费用必须预扣 |
+| `controller/user_manage_test.go` | 管理员负数额度覆盖必须拒绝 |
+
+验证：
+
+- Go 后端各包测试通过。
+- Windows amd64 和 Linux amd64 编译通过。

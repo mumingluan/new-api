@@ -23,6 +23,11 @@ const (
 var batchUpdateStores []map[int]int
 var batchUpdateLocks []sync.Mutex
 
+var (
+	ErrUserQuotaInsufficient  = errors.New("user quota is not enough")
+	ErrTokenQuotaInsufficient = errors.New("token quota is not enough")
+)
+
 func init() {
 	for i := 0; i < BatchUpdateTypeCount; i++ {
 		batchUpdateStores = append(batchUpdateStores, make(map[int]int))

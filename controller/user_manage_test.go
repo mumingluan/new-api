@@ -159,3 +159,21 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	assert.EqualValues(t, 1, unchanged.AuthVersion)
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
 }
+
+func TestManageUserRejectsNegativeQuotaOverride(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{
+		Username: "managed-quota-user", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", Quota: 100,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"override","value":-1}`,
+		user.Id,
+	))
+
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, db.Select("quota").First(&user, user.Id).Error)
+	assert.Equal(t, 100, user.Quota)
+}
