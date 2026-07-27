@@ -37,6 +37,7 @@ func OpenAIChatRequestToGeminiGenerateContent(c *gin.Context, textRequest dto.Ge
 	if modelName := relaymeta.RelayInfoUpstreamModelName(info); modelName != "" {
 		upstreamModelName = modelName
 	}
+	flattenHistoricalToolMessages := strings.Contains(strings.ToLower(upstreamModelName), "claude")
 
 	if model_setting.IsGeminiModelSupportImagine(upstreamModelName) {
 		geminiRequest.GenerationConfig.ResponseModalities = []string{
@@ -186,7 +187,11 @@ func OpenAIChatRequestToGeminiGenerateContent(c *gin.Context, textRequest dto.Ge
 					}
 				}
 			}
-			tool.Function.Parameters = sharedgemini.CleanFunctionParameters(tool.Function.Parameters)
+			if flattenHistoricalToolMessages {
+				tool.Function.Parameters = sharedgemini.CleanClaudeCompatibleFunctionParameters(tool.Function.Parameters)
+			} else {
+				tool.Function.Parameters = sharedgemini.CleanFunctionParameters(tool.Function.Parameters)
+			}
 			functions = append(functions, tool.Function)
 		}
 		geminiTools := geminiRequest.GetTools()
@@ -243,6 +248,16 @@ func OpenAIChatRequestToGeminiGenerateContent(c *gin.Context, textRequest dto.Ge
 				})
 			}
 			parts := &geminiRequest.Contents[len(geminiRequest.Contents)-1].Parts
+			if flattenHistoricalToolMessages {
+				content := message.StringContent()
+				if message.Name != nil && *message.Name != "" {
+					content = fmt.Sprintf("Tool result for %s: %s", *message.Name, content)
+				} else if message.ToolCallId != "" {
+					content = fmt.Sprintf("Tool result for %s: %s", message.ToolCallId, content)
+				}
+				*parts = append(*parts, dto.GeminiPart{Text: content})
+				continue
+			}
 			name := ""
 			if message.Name != nil {
 				name = *message.Name
@@ -280,6 +295,12 @@ func OpenAIChatRequestToGeminiGenerateContent(c *gin.Context, textRequest dto.Ge
 		signatureAttached := false
 		if message.ToolCalls != nil {
 			for _, call := range message.ParseToolCalls() {
+				if flattenHistoricalToolMessages {
+					parts = append(parts, dto.GeminiPart{
+						Text: fmt.Sprintf("Tool call %s (%s): %s", call.ID, call.Function.Name, call.Function.Arguments),
+					})
+					continue
+				}
 				args := map[string]interface{}{}
 				if call.Function.Arguments != "" {
 					if common.Unmarshal([]byte(call.Function.Arguments), &args) != nil {

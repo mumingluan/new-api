@@ -3,6 +3,7 @@ package gemini
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 )
 
@@ -37,6 +38,134 @@ func CleanFunctionParameters(params interface{}) interface{} {
 	return cleanGeminiFunctionParametersWithDepth(params, 0)
 }
 
+// CleanClaudeCompatibleFunctionParameters reduces a Gemini function schema to
+// the conservative JSON Schema subset accepted by Gemini-to-Claude gateways.
+func CleanClaudeCompatibleFunctionParameters(params interface{}) interface{} {
+	cleaned := CleanFunctionParameters(params)
+	result := cleanClaudeCompatibleSchema(cleaned, 0)
+	if _, hasType := result["type"]; !hasType {
+		result["type"] = "object"
+	}
+	return result
+}
+
+func cleanClaudeCompatibleSchema(schema interface{}, depth int) map[string]interface{} {
+	if depth >= geminiFunctionSchemaMaxDepth {
+		return map[string]interface{}{}
+	}
+
+	source, ok := schema.(map[string]interface{})
+	if !ok {
+		return map[string]interface{}{}
+	}
+
+	if alternatives, ok := source["anyOf"].([]interface{}); ok {
+		for _, alternative := range alternatives {
+			candidate := cleanClaudeCompatibleSchema(alternative, depth+1)
+			if _, hasType := candidate["type"]; !hasType {
+				continue
+			}
+			if description, ok := source["description"].(string); ok && description != "" {
+				candidate["description"] = description
+			}
+			return candidate
+		}
+	}
+
+	result := make(map[string]interface{})
+	if description, ok := source["description"].(string); ok && description != "" {
+		result["description"] = description
+	}
+	if schemaType, ok := source["type"].(string); ok {
+		normalizedType := strings.ToLower(schemaType)
+		switch normalizedType {
+		case "object", "array", "string", "integer", "number", "boolean":
+			result["type"] = normalizedType
+		}
+	}
+	if enum, ok := source["enum"].([]interface{}); ok && len(enum) > 0 {
+		result["enum"] = enum
+	}
+
+	if properties, ok := source["properties"].(map[string]interface{}); ok {
+		cleanedProperties := make(map[string]interface{}, len(properties))
+		for name, property := range properties {
+			cleanedProperties[name] = cleanClaudeCompatibleSchema(property, depth+1)
+		}
+		result["properties"] = cleanedProperties
+		result["type"] = "object"
+	}
+	if required, ok := source["required"].([]interface{}); ok {
+		cleanedRequired := make([]string, 0, len(required))
+		for _, item := range required {
+			if name, ok := item.(string); ok && name != "" {
+				cleanedRequired = append(cleanedRequired, name)
+			}
+		}
+		if len(cleanedRequired) > 0 {
+			result["required"] = cleanedRequired
+		}
+	}
+	if items, exists := source["items"]; exists {
+		result["items"] = cleanClaudeCompatibleSchema(items, depth+1)
+		if _, hasType := result["type"]; !hasType {
+			result["type"] = "array"
+		}
+	}
+
+	return result
+}
+
+// CleanTools sanitizes the OpenAPI Schema fields embedded in native Gemini
+// function declarations while preserving all other current and future tool
+// types verbatim.
+func CleanTools(tools []byte) ([]byte, error) {
+	if len(tools) == 0 {
+		return tools, nil
+	}
+
+	var value interface{}
+	if err := common.Unmarshal(tools, &value); err != nil {
+		return nil, err
+	}
+
+	switch typed := value.(type) {
+	case []interface{}:
+		for _, tool := range typed {
+			cleanGeminiTool(tool)
+		}
+	case map[string]interface{}:
+		cleanGeminiTool(typed)
+	}
+
+	return common.Marshal(value)
+}
+
+func cleanGeminiTool(tool interface{}) {
+	toolMap, ok := tool.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	for _, key := range []string{"functionDeclarations", "function_declarations"} {
+		declarations, ok := toolMap[key].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, declaration := range declarations {
+			declarationMap, ok := declaration.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			for _, schemaKey := range []string{"parameters", "response"} {
+				if schema, exists := declarationMap[schemaKey]; exists {
+					declarationMap[schemaKey] = CleanFunctionParameters(schema)
+				}
+			}
+		}
+	}
+}
+
 func cleanGeminiFunctionParametersWithDepth(params interface{}, depth int) interface{} {
 	if params == nil {
 		return nil
@@ -54,6 +183,7 @@ func cleanGeminiFunctionParametersWithDepth(params interface{}, depth int) inter
 				cleanedMap[key] = val
 			}
 		}
+		convertGeminiSchemaConst(v, cleanedMap)
 
 		normalizeGeminiSchemaTypeAndNullable(cleanedMap)
 
@@ -101,6 +231,7 @@ func cleanGeminiFunctionParametersShallow(params interface{}) interface{} {
 				cleanedMap[key] = val
 			}
 		}
+		convertGeminiSchemaConst(v, cleanedMap)
 		normalizeGeminiSchemaTypeAndNullable(cleanedMap)
 		delete(cleanedMap, "properties")
 		delete(cleanedMap, "items")
@@ -110,6 +241,16 @@ func cleanGeminiFunctionParametersShallow(params interface{}) interface{} {
 		return []interface{}{}
 	default:
 		return params
+	}
+}
+
+func convertGeminiSchemaConst(source, target map[string]interface{}) {
+	if _, hasEnum := target["enum"]; !hasEnum {
+		if constValue, hasConst := source["const"]; hasConst {
+			if stringValue, ok := constValue.(string); ok {
+				target["enum"] = []interface{}{stringValue}
+			}
+		}
 	}
 }
 

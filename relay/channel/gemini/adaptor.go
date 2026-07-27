@@ -24,6 +24,20 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
+	cleanedTools, err := relayconvert.CleanGeminiTools(request.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Gemini tools: %w", err)
+	}
+	request.Tools = cleanedTools
+
+	for i := range request.Requests {
+		cleanedBatchTools, err := relayconvert.CleanGeminiTools(request.Requests[i].Tools)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Gemini tools in batch request %d: %w", i, err)
+		}
+		request.Requests[i].Tools = cleanedBatchTools
+	}
+
 	if len(request.Contents) > 0 {
 		for i, content := range request.Contents {
 			if i == 0 {

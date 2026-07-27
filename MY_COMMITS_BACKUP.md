@@ -297,3 +297,33 @@
 
 - Go 后端各包测试通过。
 - Windows amd64 和 Linux amd64 编译通过。
+
+### 14. Gemini 转 Claude 工具调用兼容
+
+修复 OpenAI Chat Completions 经 Gemini 兼容接口转发到 Claude 模型时，工具 schema 校验失败、历史工具调用 ID 错位，以及流式工具参数被拆分后丢失的问题。
+
+保留行为：
+
+- 原生 Gemini 请求发送前递归清理函数声明中的非 Gemini Schema 字段；字符串 `const` 转换为单元素 `enum`，不支持的排他边界直接移除，避免改变边界语义。
+- Claude 映射模型使用保守的工具输入 schema，并保证无参数工具也带有根级 `"type": "object"`。
+- Claude 映射链路中的历史工具调用与结果转为文本上下文，规避中转服务重新编号 `tool_use_id` 后调用与结果无法配对。
+- 兼容中转服务将一次 Gemini `functionCall` 拆成“函数名空参数”和“空函数名完整参数”两个 SSE 片段的行为；首段先缓存，收到参数后以同一调用 ID 输出完整 OpenAI 工具调用。
+- 通用 Gemini 转换继续使用原有 Schema 类型格式，Claude 专用路径才输出 JSON Schema Draft 2020-12 所需的小写类型，避免影响其他 Gemini 渠道。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `relay/channel/gemini/adaptor.go` | 原生及批量 Gemini 工具 schema 清理入口 |
+| `relay/channel/gemini/relay-gemini.go` | 分段流式工具调用缓存、合并和稳定 ID |
+| `service/relayconvert/internal/oai_chat/to_gemini_chat_req.go` | Claude schema 兼容及历史工具消息处理 |
+| `service/relayconvert/internal/gemini_chat/to_oai_chat_resp.go` | Gemini 工具调用 ID 向 OpenAI 响应透传 |
+| `service/relayconvert/internal/shared/gemini/schema.go` | Gemini/Claude 工具 schema 清理规则 |
+| `dto/gemini.go` | Gemini function call ID 字段 |
+
+验证：
+
+- Gemini relay、请求/响应转换、共享 schema 和响应语义校验测试通过。
+- 相关包 `go vet` 通过。
+- Windows amd64 和 Linux amd64 编译通过。
+- OpenAI 流式工具调用端到端验证可得到完整参数而非空对象。

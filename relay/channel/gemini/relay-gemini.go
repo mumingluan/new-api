@@ -112,6 +112,84 @@ func streamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 	return relayconvert.StreamResponseGeminiChat2OpenAI(geminiResponse)
 }
 
+type geminiFunctionCallStreamEntry struct {
+	id   string
+	name string
+}
+
+type geminiFunctionCallStreamState struct {
+	entries map[int]map[int]geminiFunctionCallStreamEntry
+}
+
+func (s *geminiFunctionCallStreamState) normalize(response *dto.GeminiChatResponse) bool {
+	if s.entries == nil {
+		s.entries = make(map[int]map[int]geminiFunctionCallStreamEntry)
+	}
+	sawFunctionCall := false
+	onlyInitialDeclarations := true
+	for candidateIndex := range response.Candidates {
+		candidate := &response.Candidates[candidateIndex]
+		choiceIndex := int(candidate.Index)
+		choiceEntries := s.entries[choiceIndex]
+		if choiceEntries == nil {
+			choiceEntries = make(map[int]geminiFunctionCallStreamEntry)
+			s.entries[choiceIndex] = choiceEntries
+		}
+		for partIndex := range candidate.Content.Parts {
+			call := candidate.Content.Parts[partIndex].FunctionCall
+			if call == nil {
+				if candidate.Content.Parts[partIndex].Text != "" ||
+					candidate.Content.Parts[partIndex].InlineData != nil ||
+					candidate.Content.Parts[partIndex].FileData != nil {
+					onlyInitialDeclarations = false
+				}
+				continue
+			}
+			sawFunctionCall = true
+
+			entry, exists := choiceEntries[partIndex]
+			name := strings.TrimSpace(call.FunctionName)
+			if name == "" {
+				onlyInitialDeclarations = false
+				if !exists && len(choiceEntries) == 1 {
+					for _, onlyEntry := range choiceEntries {
+						entry = onlyEntry
+						exists = true
+					}
+				}
+				if exists {
+					call.FunctionName = entry.name
+					call.ID = entry.id
+				}
+				continue
+			}
+
+			if exists && entry.name == name {
+				onlyInitialDeclarations = false
+			}
+			argumentsEmpty := call.Arguments == nil
+			if arguments, ok := call.Arguments.(map[string]interface{}); ok {
+				argumentsEmpty = len(arguments) == 0
+			}
+			if !argumentsEmpty {
+				onlyInitialDeclarations = false
+			}
+			if call.ID == "" {
+				if exists && entry.name == name {
+					call.ID = entry.id
+				} else {
+					call.ID = fmt.Sprintf("call_%s", common.GetUUID())
+				}
+			}
+			choiceEntries[partIndex] = geminiFunctionCallStreamEntry{
+				id:   call.ID,
+				name: name,
+			}
+		}
+	}
+	return sawFunctionCall && onlyInitialDeclarations
+}
+
 func handleStream(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.ChatCompletionsStreamResponse) error {
 	streamData, err := common.Marshal(resp)
 	if err != nil {
@@ -210,11 +288,14 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	finishReason := constant.FinishReasonStop
 	toolCallIndexByChoice := make(map[int]map[string]int)
 	nextToolCallIndexByChoice := make(map[int]int)
+	var functionCallState geminiFunctionCallStreamState
 	var validationErr error
 	var validationAPIError *types.NewAPIError
 	sawTerminal := false
+	isClaudeGeminiBridge := strings.Contains(strings.ToLower(info.UpstreamModelName), "claude")
 
 	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+		bufferFunctionDeclarations := functionCallState.normalize(geminiResponse)
 		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
 			validationAPIError = types.NewOpenAIError(
 				errors.New("request blocked by Gemini API: "+*geminiResponse.PromptFeedback.BlockReason),
@@ -223,6 +304,9 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 				types.ErrOptionWithSkipRetry(),
 			)
 			return false
+		}
+		if isClaudeGeminiBridge && bufferFunctionDeclarations {
+			return true
 		}
 		validity, currentErr := responsevalidator.GeminiResponse(geminiResponse)
 		if currentErr != nil {
@@ -262,6 +346,9 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 				}
 				if idx, ok := m[tool.ID]; ok {
 					tool.SetIndex(idx)
+					tool.ID = ""
+					tool.Type = nil
+					tool.Function.Name = ""
 					continue
 				}
 				idx := nextToolCallIndexByChoice[choiceKey]
@@ -275,7 +362,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		if info.SendResponseCount == 0 {
 			// send first response
 			emptyResponse := helper.GenerateStartEmptyResponse(id, createAt, info.UpstreamModelName, nil)
-			if response.IsToolCall() {
+			if response.IsToolCall() && !isClaudeGeminiBridge {
 				if len(emptyResponse.Choices) > 0 && len(response.Choices) > 0 {
 					toolCalls := response.Choices[0].Delta.ToolCalls
 					copiedToolCalls := make([]dto.ToolCallResponse, len(toolCalls))
