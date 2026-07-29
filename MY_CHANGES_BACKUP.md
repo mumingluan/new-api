@@ -1,4 +1,4 @@
-# qiqi-api 本地修改备份
+# qiqi-api 本地变更备份
 
 本文档记录当前 fork 相对上游基点仍然保留的本地改动。
 
@@ -453,6 +453,22 @@ Xuancat 构建，其余响应、超时或网络错误均回退普通构建；经
 
 同时保留 Xuancat 主页客户端说明文案：OpenAI 兼容客户端可直接使用该地址，也支持 Gemini 或 Claude 格式调用。
 
+补充实现范围：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `controller/key_batch.go` | 用户/管理员作用域校验、预览、执行和日志统计接口 |
+| `model/key_batch.go` | 跨数据库密钥筛选、批量更新和消费日志聚合 |
+| `service/key_batch.go` | 批量操作计划、额度及有效期计算、审计详情生成 |
+| `controller/audit.go` | 密钥批量操作审计事件类型 |
+| `router/api-router.go` | 登录用户接口和管理员全用户操作入口 |
+| `web/src/features/key-batch-operations/` | 批量操作、统计筛选、统计表格和 CSV 导出页面 |
+| `web/src/hooks/use-sidebar-data.ts` | Xuancat 侧边栏中的“密钥批量操作”导航 |
+| `web/src/features/profile/components/sidebar-modules-card.tsx` | 用户侧边栏模块开关 |
+| `web/src/features/system-settings/maintenance/` | 管理员侧边栏模块配置 |
+
+此前的 Xuancat 主页还原、演示模块隐藏、密钥查询本地化、废弃 i18n 清理、激活码工作区顶部对齐以及激活码导航开关，分别已归入第 15、16 节，不再遗漏为未记录差异。
+
 部署状态：
 
 - Xuancat 前端生产构建以及 Windows amd64、Linux amd64 二进制构建成功。
@@ -460,3 +476,29 @@ Xuancat 构建，其余响应、超时或网络错误均回退普通构建；经
 - 本机 `MumlNewApi` 与 NekoMetal `new-api.service` 均已重启并通过 `127.0.0.1:65477/api/status` 健康检查。
 - Windows 和 Linux 部署文件的 SHA-256 均与本次构建产物一致，远程临时上传文件已清理。
 - 按用户要求，本轮部署阶段未继续运行测试。
+
+### 19. 移动端统计表格边界与双前端四实例发布
+
+密钥批量操作的日志统计表格在移动端会把 Grid/Flex 项目的最小内容宽度逐级传到页面容器，导致整个页面视窗被表格列宽撑大。现在为页面滚动区、Tabs 根节点、Tabs 面板、操作/统计内容区和结果卡片补齐 `min-w-0`、`max-w-full` 约束，页面最外层禁止横向溢出；表格仍保留自身的 `overflow-x-auto`，因此窄屏只在表格内部横向滚动，不再扩大页面宽度。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `web/src/features/key-batch-operations/index.tsx` | 收紧移动端容器最小宽度并隔离统计表格横向滚动 |
+
+验证：
+
+- `bun run typecheck` 通过。
+- `bunx oxlint src/features/key-batch-operations/index.tsx` 通过。
+- Xuancat 与普通前端生产构建均通过。
+- Xuancat Windows amd64、Xuancat Linux amd64、普通版 Linux amd64 二进制均编译成功。
+
+部署状态：
+
+- 发布版本：`v1.0.0-rc.21-70-g99746e710`。
+- Xuancat 版本已直接覆盖 Metal 的 `C:\new-api\new-api.exe` 和 NekoMetal 的 `/opt/new-api/new-api`。
+- 普通前端版本已直接覆盖 mumlTianli 的 `/opt/new-api-mmw/new-api` 与 `/opt/new-api-mmwpro/new-api`。
+- `MumlNewApi`、`new-api.service`、`new-api-mmw.service` 和 `new-api-mmwpro.service` 均已重启并处于运行状态；端口 `65477`、`65001`、`65002` 的 `/api/status` 均返回成功。
+- Xuancat Windows、Xuancat Linux、普通 Linux 构建 SHA-256 分别为 `7BE8B726D9A55EBD26B7DDEA10E703DC097C9CB120FF58174FF69C148BE28F63`、`56B9E8D78E809394E2D854927E893E1B287A69B1C128AAF9D8DF292B8C4DE1FF`、`F62F54239D5FF6B0DC9FCCFD6838605F33C361B41296975322B9EA6FFE49ED90`，均与部署文件一致。
+- 本轮未创建部署备份，临时上传文件已清理；mumlTianli 上两个实例遗留的 2026-07-24 二进制备份也已删除。配置、日志和服务定义均保持不变。
