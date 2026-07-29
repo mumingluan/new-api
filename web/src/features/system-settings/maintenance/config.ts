@@ -68,7 +68,9 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     log: true,
     midjourney: true,
     task: true,
-    ...(USE_XUANCAT_PAGES ? { activationCode: true } : {}),
+    ...(USE_XUANCAT_PAGES
+      ? { activationCode: true, keyBatchOperations: true }
+      : {}),
   },
   personal: {
     enabled: true,

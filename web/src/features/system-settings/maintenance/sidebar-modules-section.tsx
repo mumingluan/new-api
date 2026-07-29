@@ -122,6 +122,10 @@ export function SidebarModulesSection({
         title: t('Activation Code Management'),
         description: t('Activation code usage records'),
       },
+      keyBatchOperations: {
+        title: t('Key Batch Operations'),
+        description: t('Batch key maintenance and usage statistics'),
+      },
     },
     personal: {
       topup: {

@@ -45,6 +45,8 @@ var auditContentTemplates = map[string]string{
 	"channel.upstream_apply":     "Applied upstream model changes to channel (ID: ${id})",
 	"channel.upstream_apply_all": "Applied upstream model changes to ${count} channels",
 
+	"token.batch_operation": "Ran key batch operation ${action} on ${affected} keys",
+
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
 
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",

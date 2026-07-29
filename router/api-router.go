@@ -254,6 +254,14 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.POST("/batch", controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
 		}
+		keyBatchRoute := apiRouter.Group("/key-batch")
+		keyBatchRoute.Use(middleware.UserAuth())
+		{
+			keyBatchRoute.POST("/preview", controller.PreviewKeyBatch)
+			keyBatchRoute.POST("/execute", middleware.CriticalRateLimit(), controller.ExecuteKeyBatch)
+			keyBatchRoute.GET("/statistics", controller.GetKeyBatchStatistics)
+			keyBatchRoute.GET("/statistics/export", controller.ExportKeyBatchStatistics)
+		}
 		activationCodeRoute := apiRouter.Group("/activation-code")
 		activationCodeRoute.Use(middleware.UserAuth())
 		{

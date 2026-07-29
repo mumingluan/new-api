@@ -111,6 +111,11 @@ export function SidebarModulesCard() {
                 title: t('Activation Code Management'),
                 description: t('Activation code usage records'),
               },
+              {
+                key: 'keyBatchOperations',
+                title: t('Key Batch Operations'),
+                description: t('Batch key maintenance and usage statistics'),
+              },
             ]
           : []),
       ],

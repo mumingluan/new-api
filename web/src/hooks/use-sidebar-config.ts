@@ -50,7 +50,9 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     log: true,
     midjourney: true,
     task: true,
-    ...(USE_XUANCAT_PAGES ? { activationCode: true } : {}),
+    ...(USE_XUANCAT_PAGES
+      ? { activationCode: true, keyBatchOperations: true }
+      : {}),
   },
   personal: {
     enabled: true,
@@ -104,6 +106,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/dashboard/users': { section: 'console', module: 'detail' },
   '/keys': { section: 'console', module: 'token' },
   '/activation-codes': { section: 'console', module: 'activationCode' },
+  '/key-batch-operations': { section: 'console', module: 'keyBatchOperations' },
   '/usage-logs': { section: 'console', module: 'log' },
   '/usage-logs/common': { section: 'console', module: 'log' },
   '/usage-logs/drawing': { section: 'console', module: 'midjourney' },

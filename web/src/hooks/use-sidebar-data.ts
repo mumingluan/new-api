@@ -24,6 +24,7 @@ import {
   FlaskConical,
   Key,
   LayoutDashboard,
+  ListChecks,
   ListTodo,
   MessageSquare,
   Radio,
@@ -93,6 +94,11 @@ export function useSidebarData(): SidebarData {
                   title: t('Activation Code Management'),
                   url: '/activation-codes',
                   icon: SquareAsterisk,
+                },
+                {
+                  title: t('Key Batch Operations'),
+                  url: '/key-batch-operations',
+                  icon: ListChecks,
                 },
               ]
             : []),

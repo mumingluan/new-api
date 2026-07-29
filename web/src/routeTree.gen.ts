@@ -40,6 +40,7 @@ import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authentic
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedKeyBatchOperationsIndexRouteImport } from './routes/_authenticated/key-batch-operations/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
@@ -226,6 +227,12 @@ const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
     id: '/errors/$error',
     path: '/errors/$error',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedKeyBatchOperationsIndexRoute =
+  AuthenticatedKeyBatchOperationsIndexRouteImport.update({
+    id: '/key-batch-operations/',
+    path: '/key-batch-operations/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
@@ -426,6 +433,7 @@ export interface FileRoutesByFullPath {
   '/activation-codes/': typeof AuthenticatedActivationCodesIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/key-batch-operations/': typeof AuthenticatedKeyBatchOperationsIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -484,6 +492,7 @@ export interface FileRoutesByTo {
   '/activation-codes': typeof AuthenticatedActivationCodesIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
+  '/key-batch-operations': typeof AuthenticatedKeyBatchOperationsIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
@@ -546,6 +555,7 @@ export interface FileRoutesById {
   '/_authenticated/activation-codes/': typeof AuthenticatedActivationCodesIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/_authenticated/key-batch-operations/': typeof AuthenticatedKeyBatchOperationsIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -607,6 +617,7 @@ export interface FileRouteTypes {
     | '/activation-codes/'
     | '/channels/'
     | '/dashboard/'
+    | '/key-batch-operations/'
     | '/keys/'
     | '/models/'
     | '/playground/'
@@ -665,6 +676,7 @@ export interface FileRouteTypes {
     | '/activation-codes'
     | '/channels'
     | '/dashboard'
+    | '/key-batch-operations'
     | '/keys'
     | '/models'
     | '/playground'
@@ -726,6 +738,7 @@ export interface FileRouteTypes {
     | '/_authenticated/activation-codes/'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
+    | '/_authenticated/key-batch-operations/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
     | '/_authenticated/playground/'
@@ -990,6 +1003,13 @@ declare module '@tanstack/react-router' {
       path: '/errors/$error'
       fullPath: '/errors/$error'
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/key-batch-operations/': {
+      id: '/_authenticated/key-batch-operations/'
+      path: '/key-batch-operations'
+      fullPath: '/key-batch-operations/'
+      preLoaderRoute: typeof AuthenticatedKeyBatchOperationsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/keys/': {
@@ -1285,6 +1305,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedActivationCodesIndexRoute: typeof AuthenticatedActivationCodesIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
+  AuthenticatedKeyBatchOperationsIndexRoute: typeof AuthenticatedKeyBatchOperationsIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
@@ -1310,6 +1331,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedActivationCodesIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
+  AuthenticatedKeyBatchOperationsIndexRoute:
+    AuthenticatedKeyBatchOperationsIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,

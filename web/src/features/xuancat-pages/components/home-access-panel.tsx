@@ -70,7 +70,8 @@ export function XuancatHomeAccessPanel() {
           <div className='mb-4'>
             <h2 className='text-base font-semibold'>{t('API base URL')}</h2>
             <p className='text-muted-foreground/80 mt-1 text-sm'>
-              {t('Use this address in OpenAI-compatible clients.')}
+              {t('Use this address in OpenAI-compatible clients.')}{' '}
+              {t('Gemini and Claude request formats are also supported.')}
             </p>
           </div>
           <div className='flex items-center gap-2'>
