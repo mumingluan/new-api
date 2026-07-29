@@ -24,7 +24,7 @@ Xuancat 页面通过当前 NewAPI 实例访问：
 $env:VITE_LANDING_PAGE_VARIANT = 'xuancat'
 ```
 
-`xuancat` 保留原版主页的 Hero、API 调用示例、统计、功能、使用流程和 CTA，仅在 Hero 下方增加密钥开通、密钥查询和 API 基础地址工具；`default` 或未设置该变量时使用完全原版主页。关于页不受此开关影响。
+`xuancat` 使用之前的“全标准化、中立的 LLM 接入”Hero 文案，隐藏常用应用支持和 Hero API 调用演示，并保留统计、功能、使用流程和 CTA；同时在 Hero 下方增加密钥开通、密钥查询和 API 基础地址工具。`default` 或未设置该变量时使用完全原版主页。关于页不受此开关影响。
 
 实现位置：
 
@@ -107,5 +107,5 @@ ssh NekoMetal 'set -e
 2. NekoMetal `new-api.service` 状态为 `active`，远端 `/api/status` 返回 HTTP 200。
 3. 两个目标的二进制哈希分别与对应构建产物一致。
 4. `/457` 返回 `{"457":true}`。
-5. Xuancat 主页保留原版 Hero/API 示例，密钥工具正常显示。
+5. Xuancat 主页使用之前的 Hero 文案，常用应用支持和 Hero API 调用演示已隐藏，密钥工具正常显示。
 6. 激活码和使用记录工作区从标签栏下方开始，不再纵向居中。

@@ -336,7 +336,7 @@
 保留行为：
 
 - 通过编译时变量 `VITE_LANDING_PAGE_VARIANT` 切换页面：
-  - `xuancat`：保留原版 Hero、API 调用示例和后续版块，并增加 Xuancat 密钥工具；
+  - `xuancat`：使用之前的“全标准化、中立的 LLM 接入”Hero 文案，隐藏常用应用支持和 Hero API 调用演示，并增加 Xuancat 密钥工具；
   - `default` 或未设置：使用完全原版主页。关于页始终使用原版实现。
 - 内置版不提供服务器选择，激活、续期、激活码查询、令牌查询均使用当前域名下
   的 `/api/activation/*`、`/v1/dashboard/billing/*` 和 `/api/log/token`。
