@@ -30,6 +30,7 @@ import { toast } from 'sonner'
 
 import { getStatus } from '@/lib/api'
 import { installBuildMetadata } from '@/lib/build-metadata'
+import { initializeDesktopAuthentication } from '@/lib/desktop-auth-bootstrap'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
@@ -47,6 +48,8 @@ import { routeTree } from './routeTree.gen'
 
 // Styles
 import './styles/index.css'
+
+initializeDesktopAuthentication()
 
 // Ensure VChart theme is initialized before any chart mounts (prevents white default theme flash)
 // VChart theme is driven by our ThemeProvider (html.light/html.dark) via per-chart `theme` prop.

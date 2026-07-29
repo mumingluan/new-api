@@ -22,7 +22,9 @@ import { ArrowRight, BookOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { XuancatHomeAccessPanel } from '@/features/xuancat-pages/components/home-access-panel'
 import { useStatus } from '@/hooks/use-status'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 
 import { HeroTerminalDemo } from '../hero-terminal-demo'
 
@@ -240,6 +242,8 @@ export function Hero(props: HeroProps) {
           <HeroTerminalDemo className='mt-8 lg:mt-0' />
         </div>
       </div>
+
+      {USE_XUANCAT_PAGES && <XuancatHomeAccessPanel />}
     </section>
   )
 }

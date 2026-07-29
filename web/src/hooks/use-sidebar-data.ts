@@ -29,6 +29,7 @@ import {
   Radio,
   ServerCog,
   Settings,
+  SquareAsterisk,
   Ticket,
   User,
   Users,
@@ -36,7 +37,8 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -85,6 +87,15 @@ export function useSidebarData(): SidebarData {
             url: '/keys',
             icon: Key,
           },
+          ...(USE_XUANCAT_PAGES
+            ? [
+                {
+                  title: t('Activation Code Management'),
+                  url: '/activation-codes',
+                  icon: SquareAsterisk,
+                },
+              ]
+            : []),
           {
             title: t('Usage Logs'),
             url: '/usage-logs/common',

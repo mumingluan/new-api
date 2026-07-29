@@ -30,6 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -95,11 +96,24 @@ export function PublicHeader(props: PublicHeaderProps) {
 
   const user = auth.user
   const isAuthenticated = !!user
-  // Console is admin-only: never show login/register CTAs to guests.
-  // showAuthButtons only takes effect when a user is authenticated.
-  const effectiveShowAuthButtons = showAuthButtons && isAuthenticated
+  const effectiveShowAuthButtons =
+    showAuthButtons && (!USE_XUANCAT_PAGES || isAuthenticated)
   const displaySiteName = customSiteName || systemName
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  let desktopAuthContent = (
+    <Button
+      size='sm'
+      className='h-8 rounded-lg px-3.5 text-xs font-medium'
+      render={<Link to='/sign-in' />}
+    >
+      {t('Sign in')}
+    </Button>
+  )
+  if (loading) {
+    desktopAuthContent = <Skeleton className='h-8 w-20 rounded-lg' />
+  } else if (isAuthenticated) {
+    desktopAuthContent = <ProfileDropdown />
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -283,11 +297,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               {effectiveShowAuthButtons && (
                 <>
                   <div className='bg-border/40 mx-1 h-4 w-px' />
-                  {loading ? (
-                    <Skeleton className='h-8 w-20 rounded-lg' />
-                  ) : (
-                    <ProfileDropdown />
-                  )}
+                  {desktopAuthContent}
                 </>
               )}
             </div>
@@ -295,7 +305,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             {/* Mobile: compact actions + hamburger */}
             <div className='flex items-center gap-2 sm:hidden'>
               {showThemeSwitch && <ThemeSwitch />}
-              {effectiveShowAuthButtons && !loading && (
+              {effectiveShowAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
               )}
               <Button
@@ -399,11 +409,11 @@ export function PublicHeader(props: PublicHeaderProps) {
           >
             {effectiveShowAuthButtons && (
               <Link
-                to='/dashboard'
+                to={isAuthenticated ? '/dashboard' : '/sign-in'}
                 onClick={() => setMobileOpen(false)}
                 className='bg-foreground text-background inline-flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80'
               >
-                {t('Go to Dashboard')}
+                {isAuthenticated ? t('Go to Dashboard') : t('Sign in')}
               </Link>
             )}
           </div>

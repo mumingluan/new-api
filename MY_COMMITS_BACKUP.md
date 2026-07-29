@@ -8,7 +8,7 @@
 172114422 fix(auth): keep login state on rate-limited or failing token refresh
 ```
 
-更新时间：2026-07-24。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。Classic 前端及其 Electron 远程后端壳已迁移到独立仓库 `mumingluan/new-api-desktop`；本仓库的 `web/` 只保留新版前端，`electron/` 与上游保持一致。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-07-29。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。Classic 前端及其 Electron 远程后端壳已迁移到独立仓库 `mumingluan/new-api-desktop`；本仓库的 `web/` 只保留新版前端，`electron/` 与上游保持一致。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -327,3 +327,118 @@
 - 相关包 `go vet` 通过。
 - Windows amd64 和 Linux amd64 编译通过。
 - OpenAI 流式工具调用端到端验证可得到完整参数而非空对象。
+
+### 15. Xuancat 原版风格主页和密钥工具
+
+在核心前端中集成 Xuancat 密钥工具，同时继续使用原版主页和原版关于页。页面使用
+核心前端现有的 Base UI/shadcn 组件、主题变量和响应式断点，覆盖手机、平板和桌面布局。
+
+保留行为：
+
+- 通过编译时变量 `VITE_LANDING_PAGE_VARIANT` 切换页面：
+  - `xuancat`：保留原版 Hero、API 调用示例和后续版块，并增加 Xuancat 密钥工具；
+  - `default` 或未设置：使用完全原版主页。关于页始终使用原版实现。
+- 内置版不提供服务器选择，激活、续期、激活码查询、令牌查询均使用当前域名下
+  的 `/api/activation/*`、`/v1/dashboard/billing/*` 和 `/api/log/token`。
+- 令牌查询展示令牌名称、总额度、剩余额度、已用额度、过期时间和近期调用；
+  即使令牌尚无调用日志，也可从订阅接口读取令牌名称。
+- 页面文案覆盖 en、zh、zh-TW、fr、ja、ru、vi，并将内部 `zhCN` 语言代码映射为
+  合法的 Intl locale，避免日期格式化异常。
+- Dockerfile 同样暴露 `VITE_LANDING_PAGE_VARIANT` 构建参数；NewAPI 通过
+  `go:embed web/dist` 嵌入前端，因此切换后必须先重新构建前端，再编译 Go 二进制。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `web/src/features/xuancat-pages/` | 密钥开通、续期、查询功能和主页工具面板 |
+| `web/src/features/home/components/sections/hero.tsx` | 在原版 Hero 下方挂载 Xuancat 密钥工具 |
+| `web/src/lib/landing-page-variant.ts` | 判断是否启用 Xuancat 专属功能 |
+| `web/rsbuild.config.ts` | 读取并注入 `VITE_LANDING_PAGE_VARIANT` |
+| `web/.env.example` | 开关默认值示例 |
+| `Dockerfile` | Docker 构建参数透传 |
+| `controller/billing.go` | 订阅查询响应返回当前令牌名称 |
+| `controller/channel-billing.go` | 订阅响应的 `token_name` 字段 |
+
+启用、编译、双节点替换和服务重启的完整文档：
+
+```text
+docs/xuancat-integrated-home-deployment.md
+```
+
+### 16. Granter 激活码整合到 NewAPI
+
+将 Granter 的激活、续期、查询、激活码管理和使用记录整合进 NewAPI。普通用户可在
+Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；普通版前端不显示该入口。
+
+主要行为：
+
+- 新激活码统一使用 `USERID_ACTIVATIONCODE` 格式，用户只能创建自己 ID 前缀的码；
+  自动生成时使用 16 位随机后缀，例如 `1_Q68AT2NDBJES11OM`。后端优先按明文 ID
+  查询，同时兼容历史非标准码。
+- 激活码领取、状态占用、API Key 创建和使用记录写入处于同一数据库事务，避免并发
+  重复兑换；生成的 API Key 归激活码创建者所有。
+- 支持高级筛选、响应式桌面表格和移动端卡片、批量复制、CSV 导出、批量创建、
+  批量修改、按激活码批量删除及使用记录查询。
+- 页面使用 NewAPI 的 Base UI 选择器、日期时间范围选择器和日期时间选择器；
+  固定内容区支持纵向滚动，批量创建、批量管理和删除弹窗位于布局槽外并可正常打开。
+- 内置 Xuancat 主页改用 `/api/activation/*`，不再依赖独立 Granter HTTP 服务。
+- 旧 Granter 数据通过 `scripts/migrate-granter-activation-codes.sql` 原样迁移，
+  保留激活码文本、所属用户和历史使用记录。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `model/activation_code.go` | 数据模型、所有者解析、原子激活/续期及用户级管理 |
+| `controller/activation_code.go` | 公开激活接口和登录用户管理接口 |
+| `router/api-router.go` | 公开限流路由及非管理员用户管理路由 |
+| `web/src/features/activation-codes/` | Xuancat 专属激活码管理页 |
+| `web/src/features/xuancat-pages/api.ts` | 内置主页调用 NewAPI 激活接口 |
+| `scripts/migrate-granter-activation-codes.sql` | Granter 到 NewAPI 的幂等迁移脚本 |
+
+部署状态：
+
+- Granter 的现有激活码和使用记录已迁移到 NewAPI。
+- Xuancat 版本已直接替换本机和 NekoMetal 的 NewAPI 并重启，未创建部署备份。
+- 本机 `MumlNewApiGranter` 和 NekoMetal `xuancat-granter` 已停止并禁用，防止旧库与
+  NewAPI 新表同时兑换同一激活码。
+- 部署验证完成后删除本地 `bin/new-api-*` 编译产物和 `C:\new-api` 下明确的历史
+  副本文件；后续发布同样不保留本地编译结果或部署备份。
+
+验证：
+
+- 激活码并发兑换回归测试、相关 Go 测试与 `go vet` 通过。
+- 前端类型检查、定向 lint、主页 API 回归测试和 Xuancat 生产构建通过。
+- 激活码与使用记录两个工作区固定从标签栏下方开始，避免全高 Grid 把内容纵向居中。
+- 本机及 NekoMetal NewAPI 健康检查通过，外部负载均衡入口返回新版激活接口。
+
+### 17. `/457` 标记与 New-API-Desktop 双新版前端
+
+新增无需认证的独立 `GET /457` 标记路由，固定返回 `{"457":true}`。桌面端启动“新版
+前端”时先请求当前后端的 `/457`：只有响应成功且 `457` 严格为布尔值 `true` 时加载
+Xuancat 构建，其余响应、超时或网络错误均回退普通构建；经典前端不受影响。
+
+桌面端 `web/xuancat/dist` 和 `web/default/dist` 分别保存
+`VITE_LANDING_PAGE_VARIANT=xuancat` 与 `default` 的构建。托盘菜单在“启动经典前端”
+和“退出”之间新增独立“密钥查询”窗口，支持任意 New API 兼容服务器的额度、有效期、
+调用记录、分页、复制和 CSV 导出，并单独保存常用服务器—密钥组合，不依赖桌面端后端
+实例配置。
+
+部署状态：
+
+- Xuancat 构建已直接部署到本机 `C:\new-api` 和 NekoMetal `/opt/new-api`。
+- 普通构建已直接部署到 mumlTianli 的 `/opt/new-api-mmw` 与
+  `/opt/new-api-mmwpro`。
+- 四个实例均已重启并通过 `/457` 探测；部署过程未创建备份。
+- New-API-Desktop 1.1.3 在 `R:` 临时工作区安装依赖、构建经典前端和打包，
+  产物复制回项目 `dist`，OneDrive 项目内不创建 `node_modules`。
+- 1.1.1 修复自动选择 Xuancat 资源时的存储分区错误；Xuancat 与 Default 资源共享
+  新版前端的 `default` 本地存储，Classic 仍保持独立。
+- 1.1.2 适配新版前端的 Zustand 内存鉴权：Electron 仅向页面注入已验证用户和实例
+  标识，由前端建立 Desktop 代理会话；实际 API 密钥仍只保存在 Electron 主进程，
+  所有后端请求继续由本地代理补充真实鉴权头。
+- Desktop 包名、用户数据目录和文档统一为 `new-api-desktop`；首次运行时自动迁移并
+  删除旧命名目录，保留实例配置、前端存储、密钥查询配置及 Electron 会话数据。
+- 1.1.3 删除密钥查询页面内的独立顶栏和手动主题开关，窗口颜色通过
+  `prefers-color-scheme` 实时跟随 Windows 系统深浅色设置。

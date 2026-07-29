@@ -30,6 +30,7 @@ type OpenAISubscriptionResponse struct {
 	HardLimitUSD       float64 `json:"hard_limit_usd"`
 	SystemHardLimitUSD float64 `json:"system_hard_limit_usd"`
 	AccessUntil        int64   `json:"access_until"`
+	TokenName          string  `json:"token_name,omitempty"`
 }
 
 type OpenAIUsageDailyCost struct {

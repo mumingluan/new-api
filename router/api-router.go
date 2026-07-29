@@ -54,6 +54,14 @@ func SetApiRouter(router *gin.Engine) {
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.TryUserAuth(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
+		activationPublicRoute := apiRouter.Group("/activation")
+		activationPublicRoute.Use(middleware.CriticalRateLimit(), anonymousRequestBodyLimit)
+		{
+			activationPublicRoute.POST("/precheck", controller.PrecheckActivationCode)
+			activationPublicRoute.POST("/redeem", controller.RedeemActivationCode)
+			activationPublicRoute.POST("/renew", controller.RenewActivationCode)
+			activationPublicRoute.POST("/query", controller.QueryActivationCode)
+		}
 
 		apiRouter.POST("/stripe/webhook", anonymousRequestBodyLimit, controller.StripeWebhook)
 		apiRouter.POST("/creem/webhook", anonymousRequestBodyLimit, controller.CreemWebhook)
@@ -245,6 +253,16 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+		}
+		activationCodeRoute := apiRouter.Group("/activation-code")
+		activationCodeRoute.Use(middleware.UserAuth())
+		{
+			activationCodeRoute.GET("/", controller.ListActivationCodes)
+			activationCodeRoute.GET("/logs", controller.ListActivationLogs)
+			activationCodeRoute.GET("/export", controller.ExportActivationCodes)
+			activationCodeRoute.POST("/", controller.CreateActivationCodes)
+			activationCodeRoute.PUT("/batch", controller.UpdateActivationCodes)
+			activationCodeRoute.POST("/batch/delete", controller.DeleteActivationCodes)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

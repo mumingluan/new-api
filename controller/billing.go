@@ -63,6 +63,7 @@ func GetSubscription(c *gin.Context) {
 		HardLimitUSD:       amount,
 		SystemHardLimitUSD: amount,
 		AccessUntil:        expiredTime,
+		TokenName:          c.GetString("token_name"),
 	}
 	c.JSON(200, subscription)
 	return

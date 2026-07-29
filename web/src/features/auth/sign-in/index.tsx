@@ -20,6 +20,7 @@ import { Link, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
@@ -37,19 +38,22 @@ export function SignIn() {
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
             {t('Sign in')}
           </h2>
-          <p className='text-muted-foreground text-left text-sm sm:text-base'>
-            {t(
-              'The console login is for administrators only. Regular users do not need to sign in. Please visit the'
-            )}{' '}
-            <Link
-              to='/'
-              className='hover:text-primary font-medium underline underline-offset-4'
-            >
-              {t('homepage')}
-            </Link>
-            {t(' to view tutorials.')}
-          </p>
-          {!status?.self_use_mode_enabled &&
+          {USE_XUANCAT_PAGES && (
+            <p className='text-muted-foreground text-left text-sm sm:text-base'>
+              {t(
+                'The console login is for administrators only. Regular users do not need to sign in. Please visit the'
+              )}{' '}
+              <Link
+                to='/'
+                className='hover:text-primary font-medium underline underline-offset-4'
+              >
+                {t('homepage')}
+              </Link>
+              {t(' to view tutorials.')}
+            </p>
+          )}
+          {!USE_XUANCAT_PAGES &&
+            !status?.self_use_mode_enabled &&
             status?.register_enabled !== false && (
               <p className='text-muted-foreground text-left text-sm sm:text-base'>
                 {t("Don't have an account?")}{' '}
