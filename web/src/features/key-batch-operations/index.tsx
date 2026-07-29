@@ -241,8 +241,8 @@ function BatchOperationsTab({ isAdmin }: { isAdmin: boolean }) {
   ]
 
   return (
-    <div className='space-y-4'>
-      <Card data-card-hover='false'>
+    <div className='min-w-0 max-w-full space-y-4'>
+      <Card data-card-hover='false' className='min-w-0 max-w-full'>
         <CardHeader>
           <CardTitle className='flex items-center gap-2 text-base'>
             <KeyRound className='size-4' />
@@ -598,8 +598,8 @@ function StatisticsTab({ isAdmin }: { isAdmin: boolean }) {
   ]
 
   return (
-    <div className='space-y-4'>
-      <Card data-card-hover='false'>
+    <div className='min-w-0 max-w-full space-y-4'>
+      <Card data-card-hover='false' className='min-w-0 max-w-full'>
         <CardHeader>
           <CardTitle className='flex items-center gap-2 text-base'>
             <BarChart3 className='size-4' />
@@ -783,7 +783,10 @@ function StatisticsTab({ isAdmin }: { isAdmin: boolean }) {
       {result ? (
         <>
           <StatisticsTotals data={result} />
-          <Card data-card-hover='false' className='overflow-hidden'>
+          <Card
+            data-card-hover='false'
+            className='min-w-0 max-w-full overflow-hidden'
+          >
             <CardHeader className='border-b'>
               <CardTitle className='text-base'>
                 {t('Statistics results')}
@@ -794,8 +797,8 @@ function StatisticsTab({ isAdmin }: { isAdmin: boolean }) {
                 })}
               </CardDescription>
             </CardHeader>
-            <CardContent className='p-0'>
-              <div className='overflow-x-auto'>
+            <CardContent className='min-w-0 max-w-full p-0'>
+              <div className='min-w-0 max-w-full overflow-x-auto'>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -877,10 +880,10 @@ export function KeyBatchOperations() {
         {t('Key Batch Operations')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='h-full min-h-0 overflow-y-auto pr-1'>
+        <div className='h-full min-h-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto pr-1'>
           <Tabs
             defaultValue='operations'
-            className='grid min-h-full content-start gap-4'
+            className='grid min-h-full min-w-0 max-w-full content-start gap-4'
           >
             <TabsList className='w-fit'>
               <TabsTrigger value='operations'>
@@ -890,10 +893,10 @@ export function KeyBatchOperations() {
                 {t('Log statistics')}
               </TabsTrigger>
             </TabsList>
-            <TabsContent value='operations'>
+            <TabsContent value='operations' className='min-w-0 max-w-full'>
               <BatchOperationsTab isAdmin={isAdmin} />
             </TabsContent>
-            <TabsContent value='statistics'>
+            <TabsContent value='statistics' className='min-w-0 max-w-full'>
               <StatisticsTab isAdmin={isAdmin} />
             </TabsContent>
           </Tabs>
