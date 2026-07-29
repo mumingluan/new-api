@@ -118,6 +118,10 @@ export function SidebarModulesSection({
         title: t('Task logs'),
         description: t('Background job tracker for queued work.'),
       },
+      activationCode: {
+        title: t('Activation Code Management'),
+        description: t('Activation code usage records'),
+      },
     },
     personal: {
       topup: {

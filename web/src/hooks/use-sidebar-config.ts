@@ -20,6 +20,7 @@ import { useMemo } from 'react'
 
 import type { NavGroup, NavItem } from '@/components/layout/types'
 import { useStatus } from '@/hooks/use-status'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 import { useAuthStore } from '@/stores/auth-store'
 
 type SidebarSectionConfig = {
@@ -49,6 +50,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     log: true,
     midjourney: true,
     task: true,
+    ...(USE_XUANCAT_PAGES ? { activationCode: true } : {}),
   },
   personal: {
     enabled: true,
@@ -101,6 +103,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/dashboard/models': { section: 'console', module: 'detail' },
   '/dashboard/users': { section: 'console', module: 'detail' },
   '/keys': { section: 'console', module: 'token' },
+  '/activation-codes': { section: 'console', module: 'activationCode' },
   '/usage-logs': { section: 'console', module: 'log' },
   '/usage-logs/common': { section: 'console', module: 'log' },
   '/usage-logs/drawing': { section: 'console', module: 'midjourney' },

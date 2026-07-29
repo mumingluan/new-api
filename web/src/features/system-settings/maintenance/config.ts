@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
+
 export type HeaderNavAccessConfig = {
   enabled: boolean
   requireAuth: boolean
@@ -66,6 +68,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     log: true,
     midjourney: true,
     task: true,
+    ...(USE_XUANCAT_PAGES ? { activationCode: true } : {}),
   },
   personal: {
     enabled: true,

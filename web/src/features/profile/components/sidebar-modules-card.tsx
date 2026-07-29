@@ -32,6 +32,7 @@ import {
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 import { useAuthStore } from '@/stores/auth-store'
 
 type SidebarModuleConfig = {
@@ -103,6 +104,15 @@ export function SidebarModulesCard() {
           title: t('Task Logs'),
           description: t('System task records'),
         },
+        ...(USE_XUANCAT_PAGES
+          ? [
+              {
+                key: 'activationCode',
+                title: t('Activation Code Management'),
+                description: t('Activation code usage records'),
+              },
+            ]
+          : []),
       ],
     },
     {
