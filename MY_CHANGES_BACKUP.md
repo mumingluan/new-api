@@ -8,7 +8,7 @@
 172114422 fix(auth): keep login state on rate-limited or failing token refresh
 ```
 
-更新时间：2026-07-29。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。Classic 前端及其 Electron 远程后端壳已迁移到独立仓库 `mumingluan/new-api-desktop`；本仓库的 `web/` 只保留新版前端，`electron/` 与上游保持一致。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-07-31。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。本文档只记录本仓库内保留的源码差异，不记录外部部署过程或其他项目的构建流程。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -338,6 +338,8 @@
 - 通过编译时变量 `VITE_LANDING_PAGE_VARIANT` 切换页面：
   - `xuancat`：使用之前的“全标准化、中立的 LLM 接入”Hero 文案，隐藏常用应用支持和 Hero API 调用演示，并增加 Xuancat 密钥工具；
   - `default` 或未设置：使用完全原版主页。关于页始终使用原版实现。
+- Xuancat 模式主页 Hero 顶部标识使用当前实例的 `system_name`，不再固定显示
+  “玄喵大模型 HUB”；普通模式的原版标识保持不变。
 - 内置版不提供服务器选择，激活、续期、激活码查询、令牌查询均使用当前域名下
   的 `/api/activation/*`、`/v1/dashboard/billing/*` 和 `/api/log/token`。
 - 令牌查询展示令牌名称、总额度、剩余额度、已用额度、过期时间和近期调用；
@@ -353,19 +355,13 @@
 | 文件 | 说明 |
 | ---- | ---- |
 | `web/src/features/xuancat-pages/` | 密钥开通、续期、查询功能和主页工具面板 |
-| `web/src/features/home/components/sections/hero.tsx` | 在原版 Hero 下方挂载 Xuancat 密钥工具 |
+| `web/src/features/home/components/sections/hero.tsx` | 挂载 Xuancat 密钥工具，并在 Xuancat 模式显示当前实例名称 |
 | `web/src/lib/landing-page-variant.ts` | 判断是否启用 Xuancat 专属功能 |
 | `web/rsbuild.config.ts` | 读取并注入 `VITE_LANDING_PAGE_VARIANT` |
 | `web/.env.example` | 开关默认值示例 |
 | `Dockerfile` | Docker 构建参数透传 |
 | `controller/billing.go` | 订阅查询响应返回当前令牌名称 |
 | `controller/channel-billing.go` | 订阅响应的 `token_name` 字段 |
-
-启用、编译、双节点替换和服务重启的完整文档：
-
-```text
-docs/xuancat-integrated-home-deployment.md
-```
 
 ### 16. Granter 激活码整合到 NewAPI
 
@@ -398,52 +394,17 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
 | `web/src/features/xuancat-pages/api.ts` | 内置主页调用 NewAPI 激活接口 |
 | `scripts/migrate-granter-activation-codes.sql` | Granter 到 NewAPI 的幂等迁移脚本 |
 
-部署状态：
-
-- Granter 的现有激活码和使用记录已迁移到 NewAPI。
-- Xuancat 版本已直接替换本机和 NekoMetal 的 NewAPI 并重启，未创建部署备份。
-- 本机 `MumlNewApiGranter` 和 NekoMetal `xuancat-granter` 已停止并禁用，防止旧库与
-  NewAPI 新表同时兑换同一激活码。
-- 部署验证完成后删除本地 `bin/new-api-*` 编译产物和 `C:\new-api` 下明确的历史
-  副本文件；后续发布同样不保留本地编译结果或部署备份。
-
 验证：
 
 - 激活码并发兑换回归测试、相关 Go 测试与 `go vet` 通过。
 - 前端类型检查、定向 lint、主页 API 回归测试和 Xuancat 生产构建通过。
 - 激活码与使用记录两个工作区固定从标签栏下方开始，避免全高 Grid 把内容纵向居中。
 - Xuancat 构建把“激活码管理”纳入管理员和用户侧边栏模块设置；关闭对应开关会隐藏 `/activation-codes` 导航，普通构建不显示该专属设置项。
-- 本机及 NekoMetal NewAPI 健康检查通过，外部负载均衡入口返回新版激活接口。
 
-### 17. `/457` 标记与 New-API-Desktop 双新版前端
+### 17. `/457` 标记
 
-新增无需认证的独立 `GET /457` 标记路由，固定返回 `{"457":true}`。桌面端启动“新版
-前端”时先请求当前后端的 `/457`：只有响应成功且 `457` 严格为布尔值 `true` 时加载
-Xuancat 构建，其余响应、超时或网络错误均回退普通构建；经典前端不受影响。
-
-桌面端 `web/xuancat/dist` 和 `web/default/dist` 分别保存
-`VITE_LANDING_PAGE_VARIANT=xuancat` 与 `default` 的构建。托盘菜单在“启动经典前端”
-和“退出”之间新增独立“密钥查询”窗口，支持任意 New API 兼容服务器的额度、有效期、
-调用记录、分页、复制和 CSV 导出，并单独保存常用服务器—密钥组合，不依赖桌面端后端
-实例配置。
-
-部署状态：
-
-- Xuancat 构建已直接部署到本机 `C:\new-api` 和 NekoMetal `/opt/new-api`。
-- 普通构建已直接部署到 mumlTianli 的 `/opt/new-api-mmw` 与
-  `/opt/new-api-mmwpro`。
-- 四个实例均已重启并通过 `/457` 探测；部署过程未创建备份。
-- New-API-Desktop 1.1.3 在 `R:` 临时工作区安装依赖、构建经典前端和打包，
-  产物复制回项目 `dist`，OneDrive 项目内不创建 `node_modules`。
-- 1.1.1 修复自动选择 Xuancat 资源时的存储分区错误；Xuancat 与 Default 资源共享
-  新版前端的 `default` 本地存储，Classic 仍保持独立。
-- 1.1.2 适配新版前端的 Zustand 内存鉴权：Electron 仅向页面注入已验证用户和实例
-  标识，由前端建立 Desktop 代理会话；实际 API 密钥仍只保存在 Electron 主进程，
-  所有后端请求继续由本地代理补充真实鉴权头。
-- Desktop 包名、用户数据目录和文档统一为 `new-api-desktop`；首次运行时自动迁移并
-  删除旧命名目录，保留实例配置、前端存储、密钥查询配置及 Electron 会话数据。
-- 1.1.3 删除密钥查询页面内的独立顶栏和手动主题开关，窗口颜色通过
-  `prefers-color-scheme` 实时跟随 Windows 系统深浅色设置。
+新增无需认证的独立 `GET /457` 标记路由，固定返回 `{"457":true}`，供客户端严格按
+布尔值识别当前实例是否提供 Xuancat 专属前端能力。
 
 ### 18. Xuancat 用户级密钥批量操作与日志统计
 
@@ -469,15 +430,7 @@ Xuancat 构建，其余响应、超时或网络错误均回退普通构建；经
 
 此前的 Xuancat 主页还原、演示模块隐藏、密钥查询本地化、废弃 i18n 清理、激活码工作区顶部对齐以及激活码导航开关，分别已归入第 15、16 节，不再遗漏为未记录差异。
 
-部署状态：
-
-- Xuancat 前端生产构建以及 Windows amd64、Linux amd64 二进制构建成功。
-- 新版本 `v1.0.0-rc.21-68-gd4016d2cd` 已直接覆盖本机 `C:\new-api\new-api.exe` 和 NekoMetal `/opt/new-api/new-api`，未创建部署备份。
-- 本机 `MumlNewApi` 与 NekoMetal `new-api.service` 均已重启并通过 `127.0.0.1:65477/api/status` 健康检查。
-- Windows 和 Linux 部署文件的 SHA-256 均与本次构建产物一致，远程临时上传文件已清理。
-- 按用户要求，本轮部署阶段未继续运行测试。
-
-### 19. 移动端统计表格边界与双前端四实例发布
+### 19. 移动端统计表格边界
 
 密钥批量操作的日志统计表格在移动端会把 Grid/Flex 项目的最小内容宽度逐级传到页面容器，导致整个页面视窗被表格列宽撑大。现在为页面滚动区、Tabs 根节点、Tabs 面板、操作/统计内容区和结果卡片补齐 `min-w-0`、`max-w-full` 约束，页面最外层禁止横向溢出；表格仍保留自身的 `overflow-x-auto`，因此窄屏只在表格内部横向滚动，不再扩大页面宽度。
 
@@ -493,12 +446,3 @@ Xuancat 构建，其余响应、超时或网络错误均回退普通构建；经
 - `bunx oxlint src/features/key-batch-operations/index.tsx` 通过。
 - Xuancat 与普通前端生产构建均通过。
 - Xuancat Windows amd64、Xuancat Linux amd64、普通版 Linux amd64 二进制均编译成功。
-
-部署状态：
-
-- 发布版本：`v1.0.0-rc.21-70-g99746e710`。
-- Xuancat 版本已直接覆盖 Metal 的 `C:\new-api\new-api.exe` 和 NekoMetal 的 `/opt/new-api/new-api`。
-- 普通前端版本已直接覆盖 mumlTianli 的 `/opt/new-api-mmw/new-api` 与 `/opt/new-api-mmwpro/new-api`。
-- `MumlNewApi`、`new-api.service`、`new-api-mmw.service` 和 `new-api-mmwpro.service` 均已重启并处于运行状态；端口 `65477`、`65001`、`65002` 的 `/api/status` 均返回成功。
-- Xuancat Windows、Xuancat Linux、普通 Linux 构建 SHA-256 分别为 `7BE8B726D9A55EBD26B7DDEA10E703DC097C9CB120FF58174FF69C148BE28F63`、`56B9E8D78E809394E2D854927E893E1B287A69B1C128AAF9D8DF292B8C4DE1FF`、`F62F54239D5FF6B0DC9FCCFD6838605F33C361B41296975322B9EA6FFE49ED90`，均与部署文件一致。
-- 本轮未创建部署备份，临时上传文件已清理；mumlTianli 上两个实例遗留的 2026-07-24 二进制备份也已删除。配置、日志和服务定义均保持不变。

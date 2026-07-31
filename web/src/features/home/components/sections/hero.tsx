@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { XuancatHomeAccessPanel } from '@/features/xuancat-pages/components/home-access-panel'
 import { useStatus } from '@/hooks/use-status'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 
 import { HeroTerminalDemo } from '../hero-terminal-demo'
@@ -50,6 +51,7 @@ const MoreIcon = () => (
 export function Hero(props: HeroProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const { systemName } = useSystemConfig()
   const docsUrl =
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
@@ -126,7 +128,7 @@ export function Hero(props: HeroProps) {
             </span>
             <span>
               {USE_XUANCAT_PAGES
-                ? t('Xuancat LLM Hub')
+                ? systemName
                 : t('AI Application Infrastructure Foundation')}
             </span>
           </div>
