@@ -415,8 +415,8 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	if info.SendResponseCount == 0 {
 		return nil, types.NewOpenAIError(errors.New("empty response from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
-	if !sawTerminal {
-		return nil, types.NewOpenAIError(errors.New("Gemini stream ended before a terminal finish reason"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	if !sawTerminal && info.StreamStatus != nil {
+		info.StreamStatus.RecordError("Gemini stream ended before a terminal finish reason")
 	}
 
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)

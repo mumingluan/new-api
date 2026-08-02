@@ -59,3 +59,7 @@ export function getUsageDateRange(days = 100): {
 export function formatQuota(quota: number): string {
   return (quota / 500_000).toFixed(6)
 }
+
+export function isKeyQueryLog(type: number | undefined): boolean {
+  return type === 0 || type === 2 || type === 5
+}

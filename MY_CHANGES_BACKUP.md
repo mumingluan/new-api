@@ -8,7 +8,7 @@
 172114422 fix(auth): keep login state on rate-limited or failing token refresh
 ```
 
-更新时间：2026-07-31。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。本文档只记录本仓库内保留的源码差异，不记录外部部署过程或其他项目的构建流程。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-08-02。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。本文档只记录本仓库内保留的源码差异，不记录外部部署过程或其他项目的构建流程。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -212,8 +212,8 @@
 - 统一按“语义输出”而不是响应体非空判断成功：文本、reasoning、refusal/content filter、音频/图片/代码结果和结构完整的工具调用均可构成有效输出；只有 role、usage、ping、start/stop、空 candidate/choice/content 等协议外壳不算输出。
 - OpenAI Chat/Completions 同时校验非流式和流式响应；工具调用必须有函数名，聚合后的 arguments 必须是完整 JSON，并正确统计并行工具调用。
 - OpenAI Responses API 校验 `completed`/`incomplete`/`failed` 状态、输出项及 function/custom tool call；流式工具调用按 item id 与 output index 关联，拒绝缺名或参数截断。
-- Claude 不再把任意合法 SSE 事件或 `stop_reason=tool_use` 的空 content 当作成功；工具流必须有 `tool_use` 块、完整 JSON 输入以及终止事件。
-- Gemini 拒绝空 candidate、空 parts、只有 usage 的流片段和无终止原因的截断流；安全过滤仍按明确拒绝处理，纯 function call 保持有效。
+- Claude 不再把任意合法 SSE 事件或 `stop_reason=tool_use` 的空 content 当作成功；工具流必须有 `tool_use` 块和完整 JSON 输入。缺少终止事件但已经产生语义输出的异常流按第 20 节处理。
+- Gemini 拒绝空 candidate、空 parts 和只有 usage 的流片段；安全过滤仍按明确拒绝处理，纯 function call 保持有效。缺少终止原因但已经产生语义输出的异常流按第 20 节处理。
 - 在首个语义输出前缓存流式协议外壳，使真正的空回仍可在未写入客户端时触发渠道间重试；一旦响应已经写出则禁止切换渠道，避免把两个上游流拼接到同一客户端响应，并发送对应协议的终止错误事件。
 - 每次渠道重试前重置 response count、stream status、首包时间、thinking/Claude 转换状态和 Responses 内置工具计数，防止上一渠道状态污染下一渠道。
 - 删除不再使用的 40k stars light 海报 PNG/SVG。
@@ -343,7 +343,7 @@
 - 内置版不提供服务器选择，激活、续期、激活码查询、令牌查询均使用当前域名下
   的 `/api/activation/*`、`/v1/dashboard/billing/*` 和 `/api/log/token`。
 - 令牌查询展示令牌名称、总额度、剩余额度、已用额度、过期时间和近期调用；
-  即使令牌尚无调用日志，也可从订阅接口读取令牌名称。
+  即使令牌尚无调用日志，也可从订阅接口读取令牌名称。近期调用同时包含消费日志和错误日志，展示成功/错误状态与完整错误详情，便于用户直接定位失败请求。
 - 页面文案覆盖 en、zh、zh-TW、fr、ja、ru、vi，并将内部 `zhCN` 语言代码映射为
   合法的 Intl locale，避免日期格式化异常；密钥查询按钮在各非英语语言中使用本地化动作文案。
 - 旧版 Xuancat 独立主页和关于页的 41 个无引用 i18n 键已从全部语言包移除。
@@ -446,3 +446,55 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
 - `bunx oxlint src/features/key-batch-operations/index.tsx` 通过。
 - Xuancat 与普通前端生产构建均通过。
 - Xuancat Windows amd64、Xuancat Linux amd64、普通版 Linux amd64 二进制均编译成功。
+
+### 20. 非空异常流按完成请求计费
+
+调整 OpenAI Chat/Completions、OpenAI Responses、Claude 和 Gemini 的流式响应终止策略：终止事件完整性与语义输出有效性分开判断，避免上游已经返回有效内容、但连接在终止帧前断开时整单退款。
+
+保留行为：
+
+- “空回”继续沿用统一语义校验定义：只有 role、usage、ping、start/stop、空 choice/candidate/content 等协议外壳不算输出；文本、reasoning、refusal/过滤结果、音频/图片/代码结果和结构完整的工具调用才算有效输出。
+- 真正空回仍返回 `ErrorCodeEmptyResponse`，进入重试/错误处理并退还预扣额度。
+- 已经产生语义输出但缺少 `finish_reason`、`[DONE]`、`message_stop`、`response.completed`、`response.incomplete` 或 Gemini terminal finish reason 时，请求按完成处理并进入正常 usage 计算和计费结算。
+- 非空异常流不会生成普通请求错误日志；消费日志通过 `other.stream_status` 保留 `status=error`、`end_reason`、`end_error` 和软错误信息，因此前端仍会标记“流异常”。
+- `client_gone`、timeout、scanner error、EOF 等由现有 `StreamStatus` 记录；只要已经获得有效语义输出且响应解析本身没有硬错误，就不会因缺少终止事件退款。
+- 不完整 JSON 工具参数、缺失工具名、无法解析的 chunk 或明确的上游错误仍按硬错误处理，不会仅因为此前出现过文本就绕过协议校验。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `relay/responsevalidator/validator.go` | 将语义输出校验拆分为 `ValidateOutput`，终止完整性继续由完整 `Validate` 检查 |
+| `relay/channel/openai/relay-openai.go` | Chat/Completions 非空截断流继续估算 usage、返回成功并记录流异常 |
+| `relay/channel/openai/relay_responses.go` | Responses 非空截断流继续结算并记录缺失 terminal event |
+| `relay/channel/claude/relay-claude.go` | Claude 非空截断流使用现有 fallback usage 结算并记录缺失 `message_stop` |
+| `relay/channel/gemini/relay-gemini.go` | Gemini 已发送有效响应但无终止原因时继续结算并记录流异常 |
+| `relay/channel/openai/chat_stream_test.go` | OpenAI 非空 EOF 正常返回 usage、空流仍拒绝的端到端回归测试 |
+| `relay/responsevalidator/validator_test.go` | 语义输出有效性与终止完整性分离测试 |
+
+验证：
+
+- `go test ./relay/...` 通过。
+- OpenAI、Responses、Claude、Gemini 和 billing service 定向测试通过。
+
+### 21. Claude 服务端工具流参数校验
+
+修复 Claude Web Search、Code Execution 等服务端工具调用在经过 relay 时被提前截断的问题。Anthropic 的 `server_tool_use` 与普通 `tool_use` 一样，会在 `content_block_start` 后通过 `input_json_delta` 分片发送参数；旧校验器只登记普通工具，因此会把服务端工具的第一个参数分片误判为“参数早于工具块”，随后终止 SSE。
+
+保留行为：
+
+- `server_tool_use` 与普通 `tool_use` 都按 content block index 登记名称和参数流。
+- Web Search 和 Code Execution 的空起始分片及后续 JSON 参数分片能够完整通过校验，不再丢失工具结果、最终文本和 `message_stop`。
+- 服务端工具缺少名称或累计参数不是完整 JSON 时仍然返回协议错误，不放宽原有响应完整性保护。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `relay/responsevalidator/validator.go` | 将 `server_tool_use` 纳入流式工具参数关联和完整性校验 |
+| `relay/responsevalidator/validator_test.go` | Web Search、Code Execution 服务端工具参数流回归测试 |
+
+验证：
+
+- `go test ./relay/responsevalidator ./relay/channel/claude` 通过。
+- `go test ./relay/...` 通过。

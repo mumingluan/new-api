@@ -184,6 +184,20 @@ func (s *OpenAIStreamState) ObserveCompletion(response *dto.CompletionsStreamRes
 }
 
 func (s *OpenAIStreamState) Validate(done bool) error {
+	if err := s.ValidateOutput(); err != nil {
+		return err
+	}
+	if !s.Terminal && !done {
+		return fmt.Errorf("stream ended before a terminal event")
+	}
+	return nil
+}
+
+// ValidateOutput verifies that a stream contains billable semantic output.
+// Terminal framing is intentionally checked by Validate so relay handlers can
+// accept and bill a non-empty stream that ended abnormally while still
+// recording the abnormal StreamStatus.
+func (s *OpenAIStreamState) ValidateOutput() error {
 	if s == nil {
 		return fmt.Errorf("stream state is nil")
 	}
@@ -198,9 +212,6 @@ func (s *OpenAIStreamState) Validate(done bool) error {
 	}
 	if !s.Valid() {
 		return fmt.Errorf("stream contained no semantic output")
-	}
-	if !s.Terminal && !done {
-		return fmt.Errorf("stream ended before a terminal event")
 	}
 	return nil
 }
@@ -268,15 +279,16 @@ func (s *ClaudeStreamState) Observe(response *dto.ClaudeResponse) error {
 		}
 		block := response.ContentBlock
 		switch block.Type {
-		case "tool_use":
+		case "tool_use", "server_tool_use":
 			if strings.TrimSpace(block.Name) == "" {
-				return fmt.Errorf("tool_use block has no name")
+				return fmt.Errorf("%s block has no name", block.Type)
 			}
 			index := response.GetIndex()
 			s.tools[index] = &streamedToolCall{name: block.Name}
+			s.Output = true
 		case "text":
 			s.Output = s.Output || block.GetText() != ""
-		case "thinking", "redacted_thinking", "server_tool_use", "web_search_tool_result":
+		case "thinking", "redacted_thinking", "web_search_tool_result":
 			s.Output = true
 		}
 	case "content_block_delta":
@@ -313,6 +325,16 @@ func (s *ClaudeStreamState) Observe(response *dto.ClaudeResponse) error {
 }
 
 func (s *ClaudeStreamState) Validate() error {
+	if err := s.ValidateOutput(); err != nil {
+		return err
+	}
+	if !s.Terminal {
+		return fmt.Errorf("stream ended before message_stop")
+	}
+	return nil
+}
+
+func (s *ClaudeStreamState) ValidateOutput() error {
 	if s == nil {
 		return fmt.Errorf("stream state is nil")
 	}
@@ -327,9 +349,6 @@ func (s *ClaudeStreamState) Validate() error {
 	}
 	if !s.Valid() {
 		return fmt.Errorf("stream contained no semantic output")
-	}
-	if !s.Terminal {
-		return fmt.Errorf("stream ended before message_stop")
 	}
 	return nil
 }
@@ -532,6 +551,16 @@ func (s *ResponsesStreamState) Observe(event *dto.ResponsesStreamResponse) error
 }
 
 func (s *ResponsesStreamState) Validate() error {
+	if err := s.ValidateOutput(); err != nil {
+		return err
+	}
+	if !s.Terminal {
+		return fmt.Errorf("stream ended before response.completed or response.incomplete")
+	}
+	return nil
+}
+
+func (s *ResponsesStreamState) ValidateOutput() error {
 	if s == nil {
 		return fmt.Errorf("stream state is nil")
 	}
@@ -551,9 +580,6 @@ func (s *ResponsesStreamState) Validate() error {
 	}
 	if !s.Valid() {
 		return fmt.Errorf("stream contained no semantic output")
-	}
-	if !s.Terminal {
-		return fmt.Errorf("stream ended before response.completed or response.incomplete")
 	}
 	return nil
 }
