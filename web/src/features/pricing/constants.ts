@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
 import type { TokenUnit } from './types'
 
@@ -81,9 +81,7 @@ export type EndpointTypeOption =
   (typeof ENDPOINT_TYPES)[keyof typeof ENDPOINT_TYPES]
 
 /** Endpoint type labels */
-export function getEndpointTypeLabels(
-  t: TFunction
-): Record<EndpointTypeOption, string> {
+export function getEndpointTypeLabels(t: TFunction): Record<string, string> {
   return {
     [ENDPOINT_TYPES.ALL]: t('All Types'),
     [ENDPOINT_TYPES.OPENAI]: 'Chat',

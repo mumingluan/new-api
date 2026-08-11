@@ -37,6 +37,7 @@ import {
   getEndpointTypeLabels,
   getQuotaTypeLabels,
 } from '../constants'
+import { getAvailableEndpointTypes } from '../lib/endpoint-types'
 import { parseTags } from '../lib/filters'
 import type { PricingModel, PricingVendor } from '../types'
 
@@ -233,16 +234,13 @@ export function PricingSidebar(props: PricingSidebarProps) {
       label: endpointTypeLabels[ENDPOINT_TYPES.ALL],
       count: props.models.length,
     },
-    ...Object.entries(endpointTypeLabels)
-      .filter(([value]) => value !== ENDPOINT_TYPES.ALL)
-      .map(([value, label]) => ({
-        value,
-        label,
-        count: countBy(
-          props.models,
-          (model) => model.supported_endpoint_types?.includes(value) ?? false
-        ),
-      })),
+    ...getAvailableEndpointTypes(
+      props.models,
+      Object.keys(endpointTypeLabels).filter(
+        (value) => value !== ENDPOINT_TYPES.ALL
+      ),
+      endpointTypeLabels
+    ),
   ]
 
   return (

@@ -502,3 +502,30 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
 
 - `go test ./relay/responsevalidator ./relay/channel/claude` 通过。
 - `go test ./relay/...` 通过。
+
+### 22. 模型广场动态端点类型筛选
+
+修复模型广场仅渲染前端预定义端点类型，导致数据库中已经配置但前端尚未登记的端点类型无法筛选、数量显示为零的问题。
+
+保留行为：
+
+- 端点类型筛选项从模型接口返回的 `supported_endpoint_types` 动态生成，只显示当前模型列表实际存在的端点。
+- 已预定义的标准端点继续使用 Chat、Rerank、Embeddings 等友好名称。
+- 未预定义的端点直接使用数据库返回的原始名称显示，并正常参与模型数量统计和筛选。
+- 同一模型重复声明相同端点时只计数一次；空端点名称会被忽略。
+- Veo 继续按现有非标准调用方式处理，本次不修改其端点类型配置。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `web/src/features/pricing/components/pricing-sidebar.tsx` | 使用模型列表动态生成端点筛选项 |
+| `web/src/features/pricing/lib/endpoint-types.ts` | 动态端点去重、排序、计数和显示名称回退 |
+| `web/src/features/pricing/lib/__tests__/endpoint-types.test.ts` | 未知端点原名显示、计数和空值回归测试 |
+| `web/src/features/pricing/constants.ts` | 允许动态端点名称访问已有友好标签映射 |
+
+验证：
+
+- 端点筛选回归测试通过。
+- 前端类型检查和定向 lint 通过。
+- Xuancat 前端生产构建通过。
