@@ -74,8 +74,25 @@ func TestOpenAIStreamStateToolOnlyAndTerminalRules(t *testing.T) {
 	unterminated := NewOpenAIStreamState()
 	require.NoError(t, unterminated.Observe(decode[dto.ChatCompletionsStreamResponse](t,
 		`{"choices":[{"index":0,"delta":{"content":"partial"}}]}`)))
+	require.NoError(t, unterminated.ValidateOutput())
 	require.Error(t, unterminated.Validate(false))
 	require.NoError(t, unterminated.Validate(true))
+}
+
+func TestStreamValidateOutputSeparatesSemanticOutputFromTermination(t *testing.T) {
+	t.Parallel()
+
+	claude := NewClaudeStreamState()
+	require.NoError(t, claude.Observe(decode[dto.ClaudeResponse](t,
+		`{"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}`)))
+	require.NoError(t, claude.ValidateOutput())
+	require.Error(t, claude.Validate())
+
+	responses := NewResponsesStreamState()
+	require.NoError(t, responses.Observe(decode[dto.ResponsesStreamResponse](t,
+		`{"type":"response.output_text.delta","delta":"partial"}`)))
+	require.NoError(t, responses.ValidateOutput())
+	require.Error(t, responses.Validate())
 }
 
 func TestClaudeSemanticOutput(t *testing.T) {
@@ -103,6 +120,27 @@ func TestClaudeSemanticOutput(t *testing.T) {
 		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}`)))
 	require.NoError(t, state.Observe(decode[dto.ClaudeResponse](t, `{"type":"message_stop"}`)))
 	require.NoError(t, state.Validate())
+}
+
+func TestClaudeServerToolUseAcceptsStreamedArguments(t *testing.T) {
+	t.Parallel()
+
+	for _, toolName := range []string{"web_search", "code_execution"} {
+		toolName := toolName
+		t.Run(toolName, func(t *testing.T) {
+			t.Parallel()
+
+			state := NewClaudeStreamState()
+			require.NoError(t, state.Observe(decode[dto.ClaudeResponse](t,
+				`{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","name":"`+toolName+`"}}`)))
+			require.NoError(t, state.Observe(decode[dto.ClaudeResponse](t,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}`)))
+			require.NoError(t, state.Observe(decode[dto.ClaudeResponse](t,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"check\"}"}}`)))
+			require.NoError(t, state.Observe(decode[dto.ClaudeResponse](t, `{"type":"message_stop"}`)))
+			require.NoError(t, state.Validate())
+		})
+	}
 }
 
 func TestGeminiSemanticOutput(t *testing.T) {
