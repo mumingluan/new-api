@@ -2772,6 +2772,7 @@
     "Model fixed pricing": "モデルの固定価格設定",
     "Model Group": "モデルグループ",
     "Model Limits": "モデル制限",
+    "Model List": "モデル一覧",
     "Model Mapping": "モデルマッピング",
     "Model Mapping (JSON)": "モデルマッピング (JSON)",
     "Model Mapping must be a JSON object like": "モデルマッピングは次のようなJSONオブジェクトである必要があります",

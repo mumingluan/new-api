@@ -28,6 +28,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 
 import { HeroTerminalDemo } from '../hero-terminal-demo'
+import { XUANCAT_HERO_ACTIONS } from '../xuancat-hero-actions'
 
 interface HeroProps {
   className?: string
@@ -54,30 +55,38 @@ export function Hero(props: HeroProps) {
   const { systemName } = useSystemConfig()
   const docsUrl =
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
+  const docsButtonClassName = USE_XUANCAT_PAGES
+    ? 'group inline-flex h-11 items-center gap-1.5 rounded-lg bg-blue-500 px-5 text-sm font-medium text-white [a]:hover:bg-blue-600 dark:bg-blue-500 dark:[a]:hover:bg-blue-400'
+    : 'group border-border/50 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-lg px-5 text-sm font-medium'
+  const docsIconClassName = USE_XUANCAT_PAGES
+    ? 'size-4 transition-colors duration-200'
+    : 'text-muted-foreground/80 group-hover:text-foreground size-4 transition-colors duration-200'
 
-  const renderDocsButton = () => {
+  const renderDocsButton = (key?: string) => {
     const isExternal = docsUrl.startsWith('http')
     if (isExternal) {
       return (
         <Button
-          variant='outline'
-          className='group border-border/50 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-lg px-5 text-sm font-medium'
+          key={key}
+          variant={USE_XUANCAT_PAGES ? 'default' : 'outline'}
+          className={docsButtonClassName}
           render={
             <a href={docsUrl} target='_blank' rel='noopener noreferrer' />
           }
         >
-          <BookOpen className='text-muted-foreground/80 group-hover:text-foreground size-4 transition-colors duration-200' />
+          <BookOpen className={docsIconClassName} />
           <span>{t('Docs')}</span>
         </Button>
       )
     }
     return (
       <Button
-        variant='outline'
-        className='group border-border/50 hover:border-border hover:bg-muted/50 inline-flex h-11 items-center gap-1.5 rounded-lg px-5 text-sm font-medium'
+        key={key}
+        variant={USE_XUANCAT_PAGES ? 'default' : 'outline'}
+        className={docsButtonClassName}
         render={<Link to={docsUrl} />}
       >
-        <BookOpen className='text-muted-foreground/80 group-hover:text-foreground size-4 transition-colors duration-200' />
+        <BookOpen className={docsIconClassName} />
         <span>{t('Docs')}</span>
       </Button>
     )
@@ -164,7 +173,24 @@ export function Hero(props: HeroProps) {
             className='landing-animate-fade-up mt-8 flex flex-wrap items-center gap-3 opacity-0'
             style={{ animationDelay: '180ms' }}
           >
-            {props.isAuthenticated ? (
+            {USE_XUANCAT_PAGES &&
+              XUANCAT_HERO_ACTIONS.map((action) => {
+                if (action === 'docs') {
+                  return renderDocsButton(action)
+                }
+
+                return (
+                  <Button
+                    key={action}
+                    variant='outline'
+                    className='border-border/50 hover:border-border hover:bg-muted/50 h-11 rounded-lg px-5 text-sm font-medium'
+                    render={<Link to='/pricing' />}
+                  >
+                    {t('Model List')}
+                  </Button>
+                )
+              })}
+            {!USE_XUANCAT_PAGES && props.isAuthenticated && (
               <>
                 <Button
                   className='group h-11 rounded-lg px-5 text-sm font-medium'
@@ -175,7 +201,8 @@ export function Hero(props: HeroProps) {
                 </Button>
                 {renderDocsButton()}
               </>
-            ) : (
+            )}
+            {!USE_XUANCAT_PAGES && !props.isAuthenticated && (
               <>
                 <Button
                   className='group h-11 rounded-lg px-5 text-sm font-medium'
