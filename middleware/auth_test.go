@@ -29,7 +29,7 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 	previousSecret := common.SessionSecret
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}))
 	model.DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
@@ -40,6 +40,40 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 		common.RedisEnabled = previousRedis
 		common.SessionSecret = previousSecret
 	})
+}
+
+func TestTokenAuthReadOnlyAllowsExpiredAndExhaustedTokens(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	gin.SetMode(gin.TestMode)
+	user := createMiddlewarePATUser(t, "readonly-token-user", "readonly-pat")
+	now := common.GetTimestamp()
+	tokens := []model.Token{
+		{UserId: user.Id, Name: "expired", Key: "readonlyexpiredkey", Status: common.TokenStatusEnabled, ExpiredTime: now - 1, RemainQuota: 100},
+		{UserId: user.Id, Name: "exhausted", Key: "readonlyexhaustedkey", Status: common.TokenStatusEnabled, ExpiredTime: now + 3600, RemainQuota: 0},
+	}
+	require.NoError(t, model.DB.Create(&tokens).Error)
+
+	router := gin.New()
+	router.GET("/billing", TokenAuthReadOnly(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"token_id":   c.GetInt("token_id"),
+			"token_name": c.GetString("token_name"),
+		})
+	})
+
+	for _, token := range tokens {
+		t.Run(token.Name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/billing", nil)
+			request.Header.Set("Authorization", "Bearer sk-"+token.Key)
+			response := httptest.NewRecorder()
+
+			router.ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusOK, response.Code)
+			assert.Contains(t, response.Body.String(), fmt.Sprintf("\"token_id\":%d", token.Id))
+			assert.Contains(t, response.Body.String(), fmt.Sprintf("\"token_name\":%q", token.Name))
+		})
+	}
 }
 
 func issueExpiredDashboardAccessToken(t *testing.T, identity service.AuthIdentity) string {
