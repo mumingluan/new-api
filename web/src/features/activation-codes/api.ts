@@ -38,6 +38,7 @@ function filterParams(filters: ActivationFilters) {
   return {
     search: filters.search || undefined,
     channel: filters.channel || undefined,
+    group: filters.group || undefined,
     status: filters.status || undefined,
     days: filters.days || undefined,
     created_from: toTimestamp(filters.createdFrom),
@@ -84,6 +85,7 @@ export async function createActivationCodes(payload: {
   count: number
   days: number
   channel: string
+  group: string
   expired_time: number
   codes: string[]
 }): Promise<ApiResponse<ActivationCode[]>> {
@@ -96,6 +98,7 @@ export async function updateActivationCodes(payload: {
   codes?: string[]
   days?: number
   channel?: string
+  group?: string
   expired_time?: number
   status?: number
 }): Promise<ApiResponse<{ updated: number }>> {

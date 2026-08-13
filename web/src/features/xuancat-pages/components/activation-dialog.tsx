@@ -356,6 +356,8 @@ export function ActivationDialog(props: ActivationDialogProps) {
               <dd>{confirmation.precheck.client_ip}</dd>
               <dt className='text-muted-foreground'>{t('Channel')}</dt>
               <dd>{confirmation.precheck.channel}</dd>
+              <dt className='text-muted-foreground'>{t('Group')}</dt>
+              <dd>{confirmation.precheck.group}</dd>
               <dt className='text-muted-foreground'>{t('Duration')}</dt>
               <dd>
                 {t('{{count}} days', {

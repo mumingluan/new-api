@@ -23,6 +23,7 @@ export type GranterResponse<T> = T & {
 export type PrecheckResponse = GranterResponse<{
   valid: boolean
   channel: string
+  group: string
   days: number
   client_ip: string
   new_expired_time: number

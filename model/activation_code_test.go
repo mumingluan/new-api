@@ -45,6 +45,7 @@ func TestCreateActivationCodesEnforcesOwnerPrefix(t *testing.T) {
 		2,
 		30,
 		"test",
+		"activation-group",
 		expiresAt,
 		[]string{"TEST0001", fmt.Sprintf("%d_TEST0002", user.Id)},
 	)
@@ -52,12 +53,14 @@ func TestCreateActivationCodesEnforcesOwnerPrefix(t *testing.T) {
 	require.Len(t, codes, 2)
 	assert.Equal(t, fmt.Sprintf("%d_TEST0001", user.Id), codes[0].Code)
 	assert.Equal(t, fmt.Sprintf("%d_TEST0002", user.Id), codes[1].Code)
+	assert.Equal(t, "activation-group", codes[0].Group)
 
 	_, err = CreateUserActivationCodes(
 		user.Id,
 		1,
 		30,
 		"test",
+		"activation-group",
 		expiresAt,
 		[]string{"999_TEST0003"},
 	)
@@ -72,6 +75,7 @@ func TestCreateActivationCodesGeneratesSixteenCharacterSuffix(t *testing.T) {
 		1,
 		30,
 		"test",
+		"activation-group",
 		common.GetTimestamp()+86400,
 		nil,
 	)
@@ -92,6 +96,7 @@ func TestActivationLookupUsesPrefixedOwnerAndFallsBackForLegacyCode(t *testing.T
 			Code:        fmt.Sprintf("%d_STANDARD", user.Id),
 			Days:        30,
 			Channel:     "standard",
+			Group:       "default",
 			ExpiredTime: now + 86400,
 			Status:      ActivationCodeStatusActive,
 			CreatedTime: now,
@@ -101,6 +106,7 @@ func TestActivationLookupUsesPrefixedOwnerAndFallsBackForLegacyCode(t *testing.T
 			Code:        "LEGACY-CODE",
 			Days:        7,
 			Channel:     "legacy",
+			Group:       "default",
 			ExpiredTime: now + 86400,
 			Status:      ActivationCodeStatusActive,
 			CreatedTime: now,
@@ -127,6 +133,7 @@ func TestRedeemActivationCodeCreatesOwnerTokenExactlyOnce(t *testing.T) {
 		Code:        fmt.Sprintf("%d_CONCURRENT", user.Id),
 		Days:        30,
 		Channel:     "general",
+		Group:       "activation-group",
 		ExpiredTime: now + 86400,
 		Status:      ActivationCodeStatusActive,
 		CreatedTime: now,
@@ -155,7 +162,7 @@ func TestRedeemActivationCodeCreatesOwnerTokenExactlyOnce(t *testing.T) {
 	require.NoError(t, DB.Where("user_id = ?", user.Id).Find(&tokens).Error)
 	require.Len(t, tokens, 1)
 	assert.Equal(t, "10000 general", tokens[0].Name)
-	assert.Equal(t, "普通用户", tokens[0].Group)
+	assert.Equal(t, "activation-group", tokens[0].Group)
 
 	var storedCode ActivationCode
 	require.NoError(t, DB.First(&storedCode, code.Id).Error)
@@ -166,4 +173,92 @@ func TestRedeemActivationCodeCreatesOwnerTokenExactlyOnce(t *testing.T) {
 	require.Len(t, logs, 1)
 	assert.Equal(t, user.Id, logs[0].UserId)
 	assert.Equal(t, tokens[0].Id, logs[0].TokenId)
+}
+
+func TestRenewActivationCodeRejectsDifferentTokenGroupWithoutConsumingCode(t *testing.T) {
+	user := setupActivationCodeFixture(t)
+	now := common.GetTimestamp()
+	code := ActivationCode{
+		UserId:      user.Id,
+		Code:        fmt.Sprintf("%d_RENEW_MISMATCH", user.Id),
+		Days:        30,
+		Channel:     "general",
+		Group:       "vip",
+		ExpiredTime: now + 86400,
+		Status:      ActivationCodeStatusActive,
+		CreatedTime: now,
+	}
+	token := Token{
+		UserId:      user.Id,
+		Name:        "existing",
+		Key:         "renew-mismatch-key",
+		Status:      common.TokenStatusEnabled,
+		CreatedTime: now,
+		ExpiredTime: now + 3600,
+		Group:       "default",
+	}
+	require.NoError(t, DB.Create(&code).Error)
+	require.NoError(t, DB.Create(&token).Error)
+
+	_, err := GetActivationPrecheck(code.Code, "", "sk-"+token.Key, now)
+	require.ErrorIs(t, err, ErrActivationGroupMismatch)
+	_, err = RenewActivationCode(code.Code, "sk-"+token.Key, "127.0.0.1", now)
+	require.ErrorIs(t, err, ErrActivationGroupMismatch)
+
+	var storedCode ActivationCode
+	require.NoError(t, DB.First(&storedCode, code.Id).Error)
+	assert.Equal(t, ActivationCodeStatusActive, storedCode.Status)
+	var storedToken Token
+	require.NoError(t, DB.First(&storedToken, token.Id).Error)
+	assert.Equal(t, token.ExpiredTime, storedToken.ExpiredTime)
+}
+
+func TestRenewActivationCodeAcceptsMatchingTokenGroup(t *testing.T) {
+	user := setupActivationCodeFixture(t)
+	now := common.GetTimestamp()
+	code := ActivationCode{
+		UserId:      user.Id,
+		Code:        fmt.Sprintf("%d_RENEW_MATCH", user.Id),
+		Days:        30,
+		Channel:     "general",
+		Group:       "vip",
+		ExpiredTime: now + 86400,
+		Status:      ActivationCodeStatusActive,
+		CreatedTime: now,
+	}
+	token := Token{
+		UserId:      user.Id,
+		Name:        "existing",
+		Key:         "renew-match-key",
+		Status:      common.TokenStatusEnabled,
+		CreatedTime: now,
+		ExpiredTime: now + 3600,
+		Group:       "vip",
+	}
+	require.NoError(t, DB.Create(&code).Error)
+	require.NoError(t, DB.Create(&token).Error)
+
+	result, err := RenewActivationCode(code.Code, "sk-"+token.Key, "127.0.0.1", now)
+	require.NoError(t, err)
+	assert.Greater(t, result.NewExpiredTime, token.ExpiredTime)
+}
+
+func TestMigrateActivationCodeGroupsBackfillsLegacyRows(t *testing.T) {
+	user := setupActivationCodeFixture(t)
+	now := common.GetTimestamp()
+	code := ActivationCode{
+		UserId:      user.Id,
+		Code:        fmt.Sprintf("%d_LEGACY_GROUP", user.Id),
+		Days:        30,
+		Channel:     "general",
+		ExpiredTime: now + 86400,
+		Status:      ActivationCodeStatusActive,
+		CreatedTime: now,
+	}
+	require.NoError(t, DB.Create(&code).Error)
+	require.NoError(t, migrateActivationCodeGroups())
+
+	var storedCode ActivationCode
+	require.NoError(t, DB.First(&storedCode, code.Id).Error)
+	assert.Equal(t, legacyActivationCodeGroup, storedCode.Group)
 }

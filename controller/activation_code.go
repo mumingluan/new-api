@@ -25,6 +25,7 @@ type activationCreateRequest struct {
 	Count       int      `json:"count"`
 	Days        int      `json:"days"`
 	Channel     string   `json:"channel"`
+	Group       string   `json:"group"`
 	ExpiredTime int64    `json:"expired_time"`
 	Codes       []string `json:"codes"`
 }
@@ -34,6 +35,7 @@ type activationBatchRequest struct {
 	Codes       []string `json:"codes"`
 	Days        *int     `json:"days"`
 	Channel     *string  `json:"channel"`
+	Group       *string  `json:"group"`
 	ExpiredTime *int64   `json:"expired_time"`
 	Status      *int     `json:"status"`
 }
@@ -53,6 +55,7 @@ func activationPublicError(c *gin.Context, err error) {
 	if !errors.Is(err, model.ErrActivationCodeInvalid) &&
 		!errors.Is(err, model.ErrActivationCodeExpired) &&
 		!errors.Is(err, model.ErrActivationCodeOwnerMismatch) &&
+		!errors.Is(err, model.ErrActivationGroupMismatch) &&
 		!errors.Is(err, model.ErrActivationTokenExists) &&
 		!errors.Is(err, model.ErrActivationTokenNotFound) &&
 		!errors.Is(err, model.ErrActivationOwnerUnavailable) &&
@@ -78,6 +81,7 @@ func PrecheckActivationCode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"valid":            true,
 		"channel":          result.Channel,
+		"group":            result.Group,
 		"days":             result.Days,
 		"client_ip":        activationClientIp(c),
 		"new_expired_time": result.NewExpiredTime,
@@ -147,6 +151,7 @@ func activationFilters(c *gin.Context) model.ActivationCodeFilters {
 	return model.ActivationCodeFilters{
 		Search:      c.Query("search"),
 		Channel:     c.Query("channel"),
+		Group:       c.Query("group"),
 		Status:      status,
 		Days:        days,
 		CreatedFrom: createdFrom,
@@ -205,6 +210,7 @@ func CreateActivationCodes(c *gin.Context) {
 		request.Count,
 		request.Days,
 		request.Channel,
+		request.Group,
 		request.ExpiredTime,
 		request.Codes,
 	)
@@ -236,6 +242,14 @@ func UpdateActivationCodes(c *gin.Context) {
 			return
 		}
 		updates["channel"] = channel
+	}
+	if request.Group != nil {
+		group := strings.TrimSpace(*request.Group)
+		if group == "" || len(group) > 64 {
+			common.ApiErrorMsg(c, "分组名称无效")
+			return
+		}
+		updates["group"] = group
 	}
 	if request.ExpiredTime != nil {
 		if *request.ExpiredTime <= common.GetTimestamp() {
@@ -287,12 +301,13 @@ func ExportActivationCodes(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename=activation-codes.csv")
 	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(c.Writer)
-	_ = writer.Write([]string{"code", "days", "channel", "status", "expires_at", "created_at", "used_at"})
+	_ = writer.Write([]string{"code", "days", "channel", "group", "status", "expires_at", "created_at", "used_at"})
 	for _, code := range codes {
 		_ = writer.Write([]string{
 			code.Code,
 			strconv.Itoa(code.Days),
 			code.Channel,
+			code.Group,
 			strconv.Itoa(code.Status),
 			fmt.Sprintf("%d", code.ExpiredTime),
 			fmt.Sprintf("%d", code.CreatedTime),

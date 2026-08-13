@@ -24,7 +24,6 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { XuancatHomeAccessPanel } from '@/features/xuancat-pages/components/home-access-panel'
 import { useStatus } from '@/hooks/use-status'
-import { useSystemConfig } from '@/hooks/use-system-config'
 import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 
 import { HeroTerminalDemo } from '../hero-terminal-demo'
@@ -52,7 +51,6 @@ const MoreIcon = () => (
 export function Hero(props: HeroProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const { systemName } = useSystemConfig()
   const docsUrl =
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
   const docsButtonClassName = USE_XUANCAT_PAGES
@@ -126,22 +124,6 @@ export function Hero(props: HeroProps) {
               : 'flex flex-col items-start text-left lg:col-span-6'
           }
         >
-          {/* Top Pill Badge */}
-          <div
-            className='landing-animate-fade-up mb-5 inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-[11px] font-medium text-blue-600 opacity-0 shadow-xs dark:border-blue-400/20 dark:bg-blue-400/5 dark:text-blue-400'
-            style={{ animationDelay: '0ms' }}
-          >
-            <span className='relative flex size-1.5'>
-              <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75' />
-              <span className='relative inline-flex size-1.5 rounded-full bg-blue-500 dark:bg-blue-400' />
-            </span>
-            <span>
-              {USE_XUANCAT_PAGES
-                ? systemName
-                : t('AI Application Infrastructure Foundation')}
-            </span>
-          </div>
-
           <h1
             className='landing-animate-fade-up text-[clamp(2.25rem,4.5vw,3.25rem)] leading-[1.15] font-bold tracking-tight'
             style={{ animationDelay: '60ms' }}

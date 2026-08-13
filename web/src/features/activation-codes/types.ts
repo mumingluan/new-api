@@ -22,6 +22,7 @@ export type ActivationCode = {
   code: string
   days: number
   channel: string
+  group: string
   expired_time: number
   status: number
   created_time: number
@@ -58,6 +59,7 @@ export type ApiResponse<T> = {
 export type ActivationFilters = {
   search: string
   channel: string
+  group: string
   status: string
   days: string
   createdFrom: string

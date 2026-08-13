@@ -80,6 +80,7 @@ import type { ActivationCode, ActivationFilters, ActivationLog } from './types'
 const EMPTY_FILTERS: ActivationFilters = {
   search: '',
   channel: '',
+  group: '',
   status: '',
   days: '',
   createdFrom: '',
@@ -146,6 +147,7 @@ function CodesTable({
               <TableHead>{t('Activation code')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
               <TableHead>{t('Channel')}</TableHead>
+              <TableHead>{t('Group')}</TableHead>
               <TableHead>{t('Duration')}</TableHead>
               <TableHead>{t('Expires')}</TableHead>
               <TableHead>{t('Created')}</TableHead>
@@ -172,6 +174,7 @@ function CodesTable({
                 </TableCell>
                 <TableCell>{statusBadge(code, t)}</TableCell>
                 <TableCell>{code.channel}</TableCell>
+                <TableCell>{code.group}</TableCell>
                 <TableCell>
                   {t('{{count}} days', { count: code.days })}
                 </TableCell>
@@ -202,7 +205,12 @@ function CodesTable({
                 </CardTitle>
                 <div className='mt-2 flex flex-wrap gap-2'>
                   {statusBadge(code, t)}
-                  <Badge variant='outline'>{code.channel}</Badge>
+                  <Badge variant='outline'>
+                    {t('Channel')}: {code.channel}
+                  </Badge>
+                  <Badge variant='outline'>
+                    {t('Group')}: {code.group}
+                  </Badge>
                   <Badge variant='outline'>
                     {t('{{count}} days', { count: code.days })}
                   </Badge>
@@ -238,6 +246,7 @@ function CreateDialog({
   const [count, setCount] = useState(1)
   const [days, setDays] = useState(30)
   const [channel, setChannel] = useState('default')
+  const [group, setGroup] = useState('普通用户')
   const [expiry, setExpiry] = useState<Date | undefined>(
     () => new Date(Date.now() + 365 * 86400000)
   )
@@ -261,6 +270,7 @@ function CreateDialog({
         count: codes.length || count,
         days,
         channel: channel.trim(),
+        group: group.trim(),
         expired_time: expiredTime,
         codes,
       })
@@ -327,6 +337,16 @@ function CreateDialog({
               />
             </Field>
             <Field>
+              <FieldLabel htmlFor='activation-group'>{t('Group')}</FieldLabel>
+              <Input
+                id='activation-group'
+                value={group}
+                maxLength={64}
+                onChange={(event) => setGroup(event.target.value)}
+                required
+              />
+            </Field>
+            <Field>
               <FieldLabel htmlFor='activation-expiry'>
                 {t('Expiration date')}
               </FieldLabel>
@@ -385,6 +405,7 @@ function BatchManageDialog({
   const { t } = useTranslation()
   const [days, setDays] = useState('')
   const [channel, setChannel] = useState('')
+  const [group, setGroup] = useState('')
   const [expiry, setExpiry] = useState<Date | undefined>()
   const [status, setStatus] = useState('unchanged')
   const [submitting, setSubmitting] = useState(false)
@@ -397,6 +418,7 @@ function BatchManageDialog({
         ids,
         days: days ? Number(days) : undefined,
         channel: channel.trim() || undefined,
+        group: group.trim() || undefined,
         expired_time: expiry ? Math.floor(expiry.getTime() / 1000) : undefined,
         status: status === 'unchanged' ? undefined : Number(status),
       })
@@ -442,6 +464,15 @@ function BatchManageDialog({
                 id='batch-channel'
                 value={channel}
                 onChange={(event) => setChannel(event.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor='batch-group'>{t('Group')}</FieldLabel>
+              <Input
+                id='batch-group'
+                value={group}
+                maxLength={64}
+                onChange={(event) => setGroup(event.target.value)}
               />
             </Field>
             <Field>
@@ -853,7 +884,7 @@ export function ActivationCodes() {
                       <Filter className='size-4' />
                       {t('Advanced filters')}
                     </CardTitle>
-                    <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-6'>
+                    <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-7'>
                       <Input
                         className='lg:col-span-2'
                         value={filters.search}
@@ -876,6 +907,17 @@ export function ActivationCodes() {
                           setPage(1)
                         }}
                         placeholder={t('Channel')}
+                      />
+                      <Input
+                        value={filters.group}
+                        onChange={(event) => {
+                          setFilters((current) => ({
+                            ...current,
+                            group: event.target.value,
+                          }))
+                          setPage(1)
+                        }}
+                        placeholder={t('Group')}
                       />
                       <Input
                         type='number'

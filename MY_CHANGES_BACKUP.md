@@ -338,8 +338,7 @@
 - 通过编译时变量 `VITE_LANDING_PAGE_VARIANT` 切换页面：
   - `xuancat`：使用之前的“全标准化、中立的 LLM 接入”Hero 文案，隐藏常用应用支持和 Hero API 调用演示，并增加 Xuancat 密钥工具；
   - `default` 或未设置：使用完全原版主页。关于页始终使用原版实现。
-- Xuancat 模式主页 Hero 顶部标识使用当前实例的 `system_name`，不再固定显示
-  “玄喵大模型 HUB”；普通模式的原版标识保持不变。
+- 主页 Hero 不再显示顶部徽标，Xuancat 与普通模式均直接展示主标题。
 - Xuancat 模式主页 Hero 操作区只保留“文档”和“模型列表”：文档按钮使用蓝色主按钮并排在最前，模型列表继续进入 `/pricing`；未登录时不再显示“开始使用”，登录后也不再显示“前往仪表板”。普通模式主页按钮保持原有行为。
 - 内置版不提供服务器选择，激活、续期、激活码查询、令牌查询均使用当前域名下
   的 `/api/activation/*`、`/v1/dashboard/billing/*` 和 `/api/log/token`。
@@ -356,7 +355,7 @@
 | 文件 | 说明 |
 | ---- | ---- |
 | `web/src/features/xuancat-pages/` | 密钥开通、续期、查询功能和主页工具面板 |
-| `web/src/features/home/components/sections/hero.tsx` | 挂载 Xuancat 密钥工具，并在 Xuancat 模式显示当前实例名称 |
+| `web/src/features/home/components/sections/hero.tsx` | 挂载 Xuancat 密钥工具并移除主页顶部徽标 |
 | `web/src/features/home/components/xuancat-hero-actions.ts` | 固定 Xuancat Hero 操作项及顺序 |
 | `web/src/features/home/components/__tests__/hero-actions.test.ts` | Xuancat Hero 操作项顺序和精简范围回归测试 |
 | `web/src/lib/landing-page-variant.ts` | 判断是否启用 Xuancat 专属功能 |
@@ -379,6 +378,8 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
   查询，同时兼容历史非标准码。
 - 激活码领取、状态占用、API Key 创建和使用记录写入处于同一数据库事务，避免并发
   重复兑换；生成的 API Key 归激活码创建者所有。
+- 每个激活码单独保存分组；领取时创建同分组 API Key，续期时若激活码分组与 Key
+  分组不同则拒绝续期且不消耗激活码。历史激活码分组迁移为“普通用户”。
 - 支持高级筛选、响应式桌面表格和移动端卡片、批量复制、CSV 导出、批量创建、
   批量修改、按激活码批量删除及使用记录查询。
 - 页面使用 NewAPI 的 Base UI 选择器、日期时间范围选择器和日期时间选择器；

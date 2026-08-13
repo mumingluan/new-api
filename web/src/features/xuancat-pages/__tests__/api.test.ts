@@ -38,13 +38,14 @@ describe('current-origin API routing', () => {
       return Response.json({
         valid: true,
         channel: 'test',
+        group: 'vip',
         days: 30,
         client_ip: '127.0.0.1',
         new_expired_time: 1_900_000_000,
       })
     }
 
-    await precheckActivation('', {
+    const precheck = await precheckActivation('', {
       activation_code: 'code',
       qq: '10000',
     })
@@ -54,6 +55,7 @@ describe('current-origin API routing', () => {
       activation_code: 'code',
       qq: '10000',
     })
+    assert.equal(precheck.group, 'vip')
   })
 
   test('queries subscriptions on the current origin with the user API key', async () => {
