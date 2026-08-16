@@ -532,3 +532,22 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
 - 端点筛选回归测试通过。
 - 前端类型检查和定向 lint 通过。
 - Xuancat 前端生产构建通过。
+
+### 23. Redis 故障转移后限流脚本自动恢复
+
+修复 Redis Sentinel failover、Redis 实例重启或 `SCRIPT FLUSH` 后限流请求持续返回 `NOSCRIPT` 和 HTTP 500 的问题。限流器不再只缓存启动时加载到旧 Redis master 的脚本 SHA，而是使用 go-redis `Script.Run` 执行 Lua：正常情况先尝试 `EVALSHA`，仅在 Redis 返回 `NOSCRIPT` 时自动回退到 `EVAL`，其他 Redis 错误继续原样传递。
+
+同时移除了限流器中绑定首个 Redis client 的全局 `sync.Once` 单例，避免客户端重建或切换后继续使用旧连接。并发请求同时遇到脚本缺失时，重复执行 `EVAL` 是安全的，不会将恢复期错误放大为持续故障。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `common/limiter/limiter.go` | 使用 `redis.Script.Run` 实现 `NOSCRIPT -> EVAL` 自动恢复，移除旧 SHA/client 全局缓存 |
+| `common/limiter/limiter_test.go` | 覆盖首次脚本缺失、`SCRIPT FLUSH` 恢复、并发恢复与非 `NOSCRIPT` 错误透传 |
+
+验证：
+
+- `go test ./common/limiter ./middleware` 通过。
+- `go test ./...` 全部通过。
+- `git diff --check` 通过。
