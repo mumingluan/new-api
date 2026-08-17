@@ -519,3 +519,27 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
 - 兑换码编辑抽屉保留本地快捷金额按钮，同时采用上游的异步加载、禁用态和
   额度精度处理。
 - 前端七种语言合并上游新增键，并完整保留 Xuancat 专属页面的全部翻译。
+
+### 23. API 令牌配置额度取消 int32 人工上限
+
+API 令牌创建和编辑不再把可用额度限制为 `2147483647`。管理员或用户可以配置
+超过该值的有限额度，例如按 USD 换算后超过 int32 范围的配额；负数额度仍然被
+拒绝，JSON 解析、Go `int` 和数据库字段本身的容量限制保持有效。
+
+此调整仅放宽令牌的可配置余额，不改变消费计费、预扣、结算以及
+`common/quota_math.go` 中防止溢出和负收费的 int32 饱和保护。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `controller/token.go` | 移除创建和更新令牌时基于 `common.MaxQuota` 的正数上限检查 |
+| `controller/token_quota_test.go` | 验证创建和更新均可持久化超过计费饱和值的令牌额度 |
+
+验证与部署：
+
+- `go test ./controller -run TestTokenQuotaCanExceedBillingClamp -count=1` 通过。
+- `go test ./controller -run '^$'` 编译检查通过。
+- 未修改或重新编译前端，也未重新发布 Desktop。
+- 已重新部署并验证本地 `C:\new-api`、NekoMetal `new-api`，以及 mumlTianli 上相互
+  独立的 `new-api-mmw` 和 `new-api-mmwpro` 服务。
