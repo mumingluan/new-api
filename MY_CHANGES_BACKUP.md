@@ -446,3 +446,24 @@ Xuancat 前端“常规 / 激活码管理”中维护自己名下的激活码；
 - `bunx oxlint src/features/key-batch-operations/index.tsx` 通过。
 - Xuancat 与普通前端生产构建均通过。
 - Xuancat Windows amd64、Xuancat Linux amd64、普通版 Linux amd64 二进制均编译成功。
+
+### 20. 2026-08-17 上游同步与本地差异保留
+
+合并 QuantumNous 上游 `main`，保留 Xuancat 激活码、密钥批量操作、专属首页、
+按 API 密钥限流、语义空响应拒绝、Gemini/Claude 工具调用兼容、额度并发安全与
+兑换码快捷金额等本地功能，并适配上游将 DTO、类型和协议转换层迁入 `relaykit`
+子模块后的包路径。
+
+合并期间的主要兼容处理：
+
+- 流式 OpenAI/Responses、Claude 和 Gemini 仍保留语义有效性校验，同时接入上游的
+  工具调用计费、Google Search 标记和图像调用计数。
+- Gemini 工具 Schema 清理、Claude 兼容 Schema、`const` 到 `enum` 转换以及原始
+  工具调用 ID 保留逻辑均迁入 `relaykit/relayconvert`。
+- 普通预扣继续使用原子条件更新防止透支；仅结算和分层计费补扣通过明确的
+  `DeductUserQuotaAllowArrears` 路径允许欠费，避免扩大负余额适用范围。
+- Token 额度同时保留 Redis 原子预留和批量落库机制，直写扣减仍检查剩余额度，
+  无限额度密钥不修改 `remain_quota`。
+- 兑换码编辑抽屉保留本地快捷金额按钮，同时采用上游的异步加载、禁用态和
+  额度精度处理。
+- 前端七种语言合并上游新增键，并完整保留 Xuancat 专属页面的全部翻译。

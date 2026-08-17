@@ -325,7 +325,7 @@ func RenewActivationCode(code, apiKey, clientIp string, now int64) (*ActivationR
 		return nil
 	})
 	if err == nil && common.RedisEnabled {
-		_ = cacheDeleteToken(key)
+		_ = invalidateTokenCacheForMutation(key)
 	}
 	return &result, err
 }

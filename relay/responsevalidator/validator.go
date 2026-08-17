@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 type Result struct {
@@ -495,6 +495,10 @@ func (s *ResponsesStreamState) Observe(event *dto.ResponsesStreamResponse) error
 		if event.Delta != "" {
 			s.Output = true
 		}
+	case "response.image_generation_call.partial_image":
+		// Partial image bytes are semantic output even though only completed
+		// image items are eligible for billing.
+		s.Output = true
 	case "response.output_item.added", "response.output_item.done":
 		if event.Item == nil {
 			return nil
