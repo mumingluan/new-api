@@ -194,12 +194,15 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	if streamErr != nil {
 		return nil, streamErr
 	}
-	if err := streamState.Validate(); err != nil {
+	if err := streamState.ValidateOutput(); err != nil {
 		code := types.ErrorCodeBadResponse
 		if !streamState.Valid() {
 			code = types.ErrorCodeEmptyResponse
 		}
 		return nil, types.NewOpenAIError(err, code, http.StatusInternalServerError)
+	}
+	if !streamState.Terminal && info.StreamStatus != nil {
+		info.StreamStatus.RecordError("stream ended before response.completed or response.incomplete")
 	}
 	if !streamCommitted {
 		for _, item := range pending {

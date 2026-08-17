@@ -277,12 +277,15 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	if streamErr != nil {
 		return nil, streamErr
 	}
-	if err := streamState.Validate(); err != nil {
+	if err := streamState.ValidateOutput(); err != nil {
 		code := types.ErrorCodeBadResponse
 		if !streamState.Valid() {
 			code = types.ErrorCodeEmptyResponse
 		}
 		return nil, types.NewOpenAIError(err, code, http.StatusInternalServerError)
+	}
+	if !streamState.Terminal && info.StreamStatus != nil {
+		info.StreamStatus.RecordError("stream ended before message_stop")
 	}
 	if !streamCommitted {
 		for _, pending := range pendingData {

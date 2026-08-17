@@ -50,7 +50,12 @@ import {
 
 import { getSubscription, getUsage, getUsageLogs } from '../api'
 import type { TokenSummary, UsageLog } from '../types'
-import { formatQuota, formatTimestamp, getUsageDateRange } from '../utils'
+import {
+  formatQuota,
+  formatTimestamp,
+  getUsageDateRange,
+  isKeyQueryLog,
+} from '../utils'
 
 type KeyQueryDialogProps = {
   open: boolean
@@ -94,7 +99,7 @@ export function KeyQueryDialog(props: KeyQueryDialogProps) {
       const usage = usageData.total_usage / 100
       const unlimited = balance === 100_000_000
       const usageLogs = (logData.success ? (logData.data ?? []) : []).filter(
-        (log) => log.type === 0 || log.type === 2
+        (log) => isKeyQueryLog(log.type)
       )
       const tokenName =
         subscription.token_name ||
@@ -213,15 +218,20 @@ export function KeyQueryDialog(props: KeyQueryDialogProps) {
                           <TableHead>{t('Time')}</TableHead>
                           <TableHead>{t('Model')}</TableHead>
                           <TableHead>{t('Group')}</TableHead>
+                          <TableHead>{t('Status')}</TableHead>
                           <TableHead>{t('Duration')}</TableHead>
                           <TableHead>{t('Prompt')}</TableHead>
                           <TableHead>{t('Completion')}</TableHead>
                           <TableHead>{t('Cost')}</TableHead>
+                          <TableHead>{t('Details')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {visibleLogs.map((log, index) => (
                           <TableRow
+                            className={
+                              log.type === 5 ? 'bg-destructive/5' : undefined
+                            }
                             key={
                               log.id ??
                               `${log.created_at}-${log.model_name}-${index}`
@@ -237,6 +247,15 @@ export function KeyQueryDialog(props: KeyQueryDialogProps) {
                             </TableCell>
                             <TableCell>{log.group || 'default'}</TableCell>
                             <TableCell>
+                              <Badge
+                                variant={
+                                  log.type === 5 ? 'destructive' : 'secondary'
+                                }
+                              >
+                                {log.type === 5 ? t('Error') : t('Success')}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
                               {t('{{count}} seconds', {
                                 count: Number(log.use_time),
                               })}{' '}
@@ -251,6 +270,9 @@ export function KeyQueryDialog(props: KeyQueryDialogProps) {
                               {log.completion_tokens || '-'}
                             </TableCell>
                             <TableCell>${formatQuota(log.quota)}</TableCell>
+                            <TableCell className='max-w-80 break-words whitespace-normal'>
+                              {log.content || '-'}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

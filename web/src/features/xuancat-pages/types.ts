@@ -60,6 +60,7 @@ export type UsageResponse = {
 export type UsageLog = {
   id?: number
   type?: number
+  content?: string
   token_name?: string
   created_at: number
   model_name: string
