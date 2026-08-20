@@ -575,3 +575,8 @@ API 令牌创建和编辑不再把可用额度限制为 `2147483647`。管理员
 - 定向的 controller、model 充值回归测试通过。
 - 前端未在当前项目重新编译；构建分别使用 new-api-desktop 已有的 Xuancat 和
   default `dist` 产物。
+- Xuancat 产物构建的 Windows/Linux amd64 二进制已部署到本机 `C:\new-api` 和
+  NekoMetal `/opt/new-api`；default 产物构建的 Linux amd64 二进制已部署到
+  mumlTianli 的 `/opt/new-api-mmw` 与 `/opt/new-api-mmwpro`。
+- 四个服务均已重启，`/api/status` 与首页返回 HTTP 200，目标二进制哈希与对应
+  构建产物一致；部署临时文件、旧二进制备份和本地临时构建产物均已清理。
