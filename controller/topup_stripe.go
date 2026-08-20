@@ -58,7 +58,7 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	if rejectInvalidCreditedQuota(c, id, getStripeCreditedQuota(req.Amount, group)) {
+	if rejectInvalidCreditedQuota(c, getStripeCreditedQuota(req.Amount, group)) {
 		return
 	}
 	payMoney := getStripePayMoney(float64(req.Amount), group)
@@ -100,7 +100,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		return
 	}
 	chargedMoney := GetChargedAmount(float64(req.Amount), *user)
-	if rejectInvalidCreditedQuota(c, id,
+	if rejectInvalidCreditedQuota(c,
 		decimal.NewFromFloat(chargedMoney).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 	) {
 		return

@@ -124,7 +124,7 @@ func RequestWaffoAmount(c *gin.Context) {
 		return
 	}
 	id := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+	if rejectInvalidTopUpQuota(c, req.Amount) {
 		return
 	}
 
@@ -161,7 +161,7 @@ func RequestWaffoPay(c *gin.Context) {
 		return
 	}
 	id := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+	if rejectInvalidTopUpQuota(c, req.Amount) {
 		return
 	}
 

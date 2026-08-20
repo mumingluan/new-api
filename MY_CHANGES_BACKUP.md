@@ -543,3 +543,35 @@ API 令牌创建和编辑不再把可用额度限制为 `2147483647`。管理员
 - 未修改或重新编译前端，也未重新发布 Desktop。
 - 已重新部署并验证本地 `C:\new-api`、NekoMetal `new-api`，以及 mumlTianli 上相互
   独立的 `new-api-mmw` 和 `new-api-mmwpro` 服务。
+
+### 24. 钱包累计余额取消 int32 人工上限
+
+移除在线充值对钱包累计余额的 `2147483647` 人工上限。原实现会在金额试算、创建
+订单和支付回调结算时检查“当前余额 + 本次充值额度”是否仍处于 int32 范围；当
+现有钱包余额已经超过该范围时，所有充值金额都会被拒绝并返回
+`top-up quota limit exceeded`。
+
+保留行为：
+
+- 单笔充值额度仍通过 `common.QuotaFromDecimalStrict` 校验，零值、负值和超过计费
+  饱和值的单笔充值继续被拒绝。
+- 支付回调仍通过数据库原子 `quota + ?` 更新余额，并保留订单状态、支付网关匹配、
+  幂等和事务保护。
+- 累计钱包余额容量由 64 位服务运行环境和数据库整数列决定，不修改计费乘数、
+  预扣、结算差额或 `common/quota_math.go` 的单次计费饱和规则。
+- `MinTopUp` 及最低充值金额解析逻辑未修改。
+
+主要文件：
+
+| 文件 | 说明 |
+| ---- | ---- |
+| `model/topup.go` | 取消累计钱包 int32 上限，保留单笔额度校验和原子入账 |
+| `controller/topup*.go` | 金额试算和各支付渠道只校验本次可入账额度，不再读取钱包累计余额 |
+| `model/payment_method_guard_test.go` | 验证钱包余额跨过或已经超过计费饱和值时仍能完成充值 |
+| `controller/topup_quota_limit_test.go` | 验证充值参数预检不依赖钱包累计余额查询 |
+
+验证与部署：
+
+- 定向的 controller、model 充值回归测试通过。
+- 前端未在当前项目重新编译；构建分别使用 new-api-desktop 已有的 Xuancat 和
+  default `dist` 产物。

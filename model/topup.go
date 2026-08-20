@@ -42,11 +42,10 @@ const (
 )
 
 var (
-	ErrPaymentMethodMismatch   = errors.New("payment method mismatch")
-	ErrTopUpNotFound           = errors.New("topup not found")
-	ErrTopUpStatusInvalid      = errors.New("topup status invalid")
-	ErrInvalidTopUpQuota       = errors.New("invalid top-up quota")
-	ErrTopUpQuotaLimitExceeded = errors.New("top-up quota limit exceeded")
+	ErrPaymentMethodMismatch = errors.New("payment method mismatch")
+	ErrTopUpNotFound         = errors.New("topup not found")
+	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
+	ErrInvalidTopUpQuota     = errors.New("invalid top-up quota")
 )
 
 func (topUp *TopUp) Insert() error {
@@ -55,39 +54,12 @@ func (topUp *TopUp) Insert() error {
 	return err
 }
 
-func topUpQuotaMaxCurrent(creditedQuota int) (int, error) {
-	if creditedQuota <= 0 || creditedQuota >= common.MaxQuota {
-		return 0, ErrInvalidTopUpQuota
-	}
-	return common.MaxQuota - 1 - creditedQuota, nil
-}
-
-// ValidateTopUpQuotaCapacity performs the user-facing pre-payment check. The
-// settlement path repeats the same invariant with an atomic conditional
-// update, because the wallet balance can change after checkout creation.
-func ValidateTopUpQuotaCapacity(userId int, creditedQuota int) error {
-	maxCurrentQuota, err := topUpQuotaMaxCurrent(creditedQuota)
-	if err != nil {
-		return err
-	}
-
-	var user User
-	if err := DB.Select("quota").Where("id = ?", userId).First(&user).Error; err != nil {
-		return err
-	}
-	if user.Quota > maxCurrentQuota {
-		return ErrTopUpQuotaLimitExceeded
-	}
-	return nil
-}
-
-// creditTopUpQuota atomically enforces the int32 wallet ceiling while adding
-// quota. Keeping the predicate and increment in one UPDATE prevents two
-// concurrent callbacks from both passing a separate read/check.
+// creditTopUpQuota atomically adds a validated single-order quota amount.
+// Wallet balances may exceed the int32 billing clamp; the database column and
+// the 64-bit server runtime define the aggregate balance capacity.
 func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int, updates map[string]interface{}) error {
-	maxCurrentQuota, err := topUpQuotaMaxCurrent(creditedQuota)
-	if err != nil {
-		return err
+	if creditedQuota <= 0 {
+		return ErrInvalidTopUpQuota
 	}
 
 	updateFields := make(map[string]interface{}, len(updates)+1)
@@ -97,7 +69,7 @@ func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int, updates map[st
 	updateFields["quota"] = gorm.Expr("quota + ?", creditedQuota)
 
 	result := tx.Model(&User{}).
-		Where("id = ? AND quota <= ?", userId, maxCurrentQuota).
+		Where("id = ?", userId).
 		Updates(updateFields)
 	if result.Error != nil {
 		return result.Error
@@ -113,7 +85,7 @@ func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int, updates map[st
 	if count == 0 {
 		return gorm.ErrRecordNotFound
 	}
-	return ErrTopUpQuotaLimitExceeded
+	return errors.New("failed to credit top-up quota")
 }
 
 func (topUp *TopUp) Update() error {
