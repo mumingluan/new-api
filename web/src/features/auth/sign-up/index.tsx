@@ -20,9 +20,11 @@ import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
+import { USE_XUANCAT_PAGES } from '@/lib/landing-page-variant'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
+import { XuancatConsoleNotice } from '../components/xuancat-console-notice'
 import { SignUpForm } from './components/sign-up-form'
 
 export function SignUp() {
@@ -46,6 +48,7 @@ export function SignUp() {
             </Link>
             .
           </p>
+          {USE_XUANCAT_PAGES ? <XuancatConsoleNotice /> : null}
         </div>
 
         <SignUpForm />

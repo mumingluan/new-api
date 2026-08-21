@@ -8,7 +8,7 @@
 172114422 fix(auth): keep login state on rate-limited or failing token refresh
 ```
 
-更新时间：2026-08-02。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。本文档只记录本仓库内保留的源码差异，不记录外部部署过程或其他项目的构建流程。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
+更新时间：2026-08-21。已逐个查看当前 fork 独有提交及当前工作区未提交改动，并按“当前工作区最终仍保留的差异”重新整理。本文档只记录本仓库内保留的源码差异，不记录外部部署过程或其他项目的构建流程。Redis Sentinel 支持和 Sentinel 故障转移重试逻辑已经从当前工作区移除，不再作为保留改动记录。
 
 ## 当前保留的改动
 
@@ -340,6 +340,8 @@
   - `default` 或未设置：使用完全原版主页。关于页始终使用原版实现。
 - Xuancat 模式主页 Hero 顶部标识使用当前实例的 `system_name`，不再固定显示
   “玄喵大模型 HUB”；普通模式的原版标识保持不变。
+- Xuancat 模式主页的访客 Hero 操作调整为“文档”和“模型列表”，其中文档使用强调色并带图标；登录后显示带图标的强调色“前往仪表板”、带图标的普通“文档”和普通“模型列表”。普通模式主页按钮保持原版行为。
+- Xuancat 注册页与登录页统一展示“控制台登录仅供管理员使用，普通用户无需登录”的首页教程提示。
 - 内置版不提供服务器选择，激活、续期、激活码查询、令牌查询均使用当前域名下
   的 `/api/activation/*`、`/v1/dashboard/billing/*` 和 `/api/log/token`。
 - 令牌查询展示令牌名称、总额度、剩余额度、已用额度、过期时间和近期调用；
@@ -356,6 +358,8 @@
 | ---- | ---- |
 | `web/src/features/xuancat-pages/` | 密钥开通、续期、查询功能和主页工具面板 |
 | `web/src/features/home/components/sections/hero.tsx` | 挂载 Xuancat 密钥工具，并在 Xuancat 模式显示当前实例名称 |
+| `web/src/features/home/components/hero-buttons.tsx` | 按登录状态和前端变体渲染 Hero 操作按钮 |
+| `web/src/features/auth/components/xuancat-console-notice.tsx` | 登录页与注册页共用的管理员控制台提示 |
 | `web/src/lib/landing-page-variant.ts` | 判断是否启用 Xuancat 专属功能 |
 | `web/rsbuild.config.ts` | 读取并注入 `VITE_LANDING_PAGE_VARIANT` |
 | `web/.env.example` | 开关默认值示例 |
