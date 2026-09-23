@@ -92,8 +92,8 @@ func (token *Token) GetIpLimits() []string {
 	if cleanIps == "" {
 		return ipLimits
 	}
-	ips := strings.Split(cleanIps, "\n")
-	for _, ip := range ips {
+	ips := strings.SplitSeq(cleanIps, "\n")
+	for ip := range ips {
 		ip = strings.TrimSpace(ip)
 		ip = strings.ReplaceAll(ip, ",", "")
 		if ip != "" {
@@ -381,6 +381,9 @@ func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 	if quota == 0 {
 		return nil
 	}
+	if !common.RedisEnabled {
+		return increaseTokenQuota(tokenId, quota)
+	}
 	if common.RedisEnabled {
 		gopool.Go(func() {
 			if _, err := cacheApplyTokenQuotaDelta(tokenId, key, int64(quota)); err != nil {
@@ -412,6 +415,9 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 	}
 	if quota == 0 {
 		return nil
+	}
+	if !common.RedisEnabled {
+		return decreaseTokenQuota(id, quota)
 	}
 	if common.RedisEnabled {
 		gopool.Go(func() {

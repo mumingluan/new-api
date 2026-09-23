@@ -148,6 +148,36 @@ func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 	assert.Equal(t, 500, user.Quota)
 }
 
+func TestRedeemAllowsWalletBalanceAboveBillingClamp(t *testing.T) {
+	userId, key := setupRedeemFixture(t, 11)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", userId).Update("quota", common.MaxQuota-10).Error)
+
+	quota, err := Redeem(key, userId)
+	require.NoError(t, err)
+	assert.Equal(t, 11, quota)
+
+	var user User
+	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
+	assert.Equal(t, common.MaxQuota+1, user.Quota)
+
+	var redemption Redemption
+	require.NoError(t, DB.First(&redemption, "key = ?", key).Error)
+	assert.Equal(t, common.RedemptionCodeStatusUsed, redemption.Status)
+}
+
+func TestRedemptionQuotaRejectsWalletOverflow(t *testing.T) {
+	setupRedeemFixture(t, 500)
+
+	redemption := &Redemption{
+		Name:        "overflow-redemption",
+		Key:         "10000000000000000000000000000002",
+		Status:      common.RedemptionCodeStatusEnabled,
+		Quota:       common.MaxWalletQuota + 1,
+		CreatedTime: common.GetTimestamp(),
+	}
+	require.Error(t, redemption.Insert())
+}
+
 // Exactly one of several concurrent redeems of the same code may win, and
 // quota must be credited exactly once.
 func TestRedeemConcurrentSingleSuccess(t *testing.T) {
@@ -157,7 +187,7 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 	successes := make([]bool, goroutines)
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			if _, err := Redeem(key, userId); err == nil {

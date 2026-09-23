@@ -15,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/responsevalidator"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
@@ -121,6 +120,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var usage = &dto.Usage{}
 	var lastStreamData string
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+	var audioUsageFrame string
 	var streamErr *types.NewAPIError
 	streamState := responsevalidator.NewOpenAIStreamState()
 	pendingData := make([]string, 0, 2)
@@ -152,6 +152,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Stop(err)
 				return
 			}
+			info.ObserveResponseModel(chunk.Model)
 			if err := streamState.Observe(&chunk); err != nil {
 				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 				sr.Stop(err)
@@ -168,7 +169,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			secondLastStreamData = lastStreamData
 		}
 		lastStreamData = data
-		collectStreamFunctionCallNames(data, seenStreamToolCalls, &streamFunctionCallNames)
+		observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
 		if !streamCommitted {
 			pendingData = append(pendingData, data)
 			if !streamState.Valid() {
@@ -226,6 +227,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if err == nil && streamResp.Usage != nil && service.ValidUsage(streamResp.Usage) {
 			usage = streamResp.Usage
 			containStreamUsage = true
+			audioUsageFrame = secondLastStreamData
 
 			if common.DebugEnabled {
 				logger.LogDebug(c, "Audio model usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
@@ -234,6 +236,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	}
+
+	info.StreamStatus.RequireTerminal()
 
 	// 处理最后的响应
 	shouldSendLastResp := true
@@ -247,7 +251,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		usage.CompletionTokens += toolCount * 7
 	}
 
-	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+	usageFrame := lastStreamData
+	if audioUsageFrame != "" {
+		usageFrame = audioUsageFrame
+	}
+	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageFrame))
 
 	for _, name := range streamFunctionCallNames {
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
@@ -256,31 +264,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
-}
-
-func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names *[]string) {
-	var streamResponse dto.ChatCompletionsStreamResponse
-	if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
-		return
-	}
-	for _, choice := range streamResponse.Choices {
-		for i, tc := range choice.Delta.ToolCalls {
-			name := tc.Function.Name
-			if name == "" {
-				continue
-			}
-			toolIdx := i
-			if tc.Index != nil {
-				toolIdx = *tc.Index
-			}
-			key := fmt.Sprintf("%d-%d", choice.Index, toolIdx)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			*names = append(*names, name)
-		}
-	}
 }
 
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -368,9 +351,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 responseValidated:
+	info.ObserveResponseModel(simpleResponse.Model)
 	// 记录 content_filter 拒绝原因（上游功能）
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
+			info.PerformanceBusinessRejection = true
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
 			break
 		}
@@ -415,7 +400,7 @@ responseValidated:
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		if usageModified {
-			var bodyMap map[string]interface{}
+			var bodyMap map[string]any
 			err = common.Unmarshal(responseBody, &bodyMap)
 			if err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -432,7 +417,7 @@ responseValidated:
 			break
 		}
 	case types.RelayFormatClaude:
-		convertResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatClaude, &simpleResponse)
+		convertResult, err := service.ConvertResponse(c, info, types.RelayFormatClaude, &simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -442,7 +427,7 @@ responseValidated:
 		}
 		responseBody = claudeRespStr
 	case types.RelayFormatGemini:
-		convertResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
+		convertResult, err := service.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -456,4 +441,56 @@ responseValidated:
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &simpleResponse.Usage, nil
+}
+
+// observeStreamChoices collects billable function call names and records the
+// finish reason facts used by health sampling from one parsed chunk.
+func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[string]struct{}, names *[]string) {
+	var streamResponse dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+		return
+	}
+	for _, choice := range streamResponse.Choices {
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			if *choice.FinishReason == constant.FinishReasonContentFilter {
+				info.PerformanceBusinessRejection = true
+			}
+			info.StreamStatus.MarkCompleted()
+		}
+		for i, tc := range choice.Delta.ToolCalls {
+			name := strings.TrimSpace(tc.Function.Name)
+			if name == "" {
+				continue
+			}
+			toolIdx := i
+			if tc.Index != nil {
+				toolIdx = *tc.Index
+			}
+			fallbackKey := fmt.Sprintf("index\x00%d\x00%d\x00%s", choice.Index, toolIdx, name)
+			activeKey := fmt.Sprintf("active\x00%d\x00%d\x00%s", choice.Index, toolIdx, name)
+			callID := strings.TrimSpace(tc.ID)
+			if callID != "" {
+				idKey := fmt.Sprintf("id\x00%d\x00%s", choice.Index, callID)
+				if _, ok := seen[idKey]; ok {
+					continue
+				}
+				seen[idKey] = struct{}{}
+				seen[activeKey] = struct{}{}
+				if _, delayedID := seen[fallbackKey]; delayedID {
+					delete(seen, fallbackKey)
+					continue
+				}
+			} else {
+				if _, ok := seen[fallbackKey]; ok {
+					continue
+				}
+				if _, ok := seen[activeKey]; ok {
+					continue
+				}
+				seen[fallbackKey] = struct{}{}
+				seen[activeKey] = struct{}{}
+			}
+			*names = append(*names, name)
+		}
+	}
 }

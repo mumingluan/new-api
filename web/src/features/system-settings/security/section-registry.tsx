@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { RateLimitSection } from '../request-limits/rate-limit-section'
-import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenDailyRateLimitSection } from '../request-limits/token-daily-rate-limit-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
@@ -69,19 +68,6 @@ const SECURITY_SECTIONS = [
           TokenDailyRateLimitSuccessCount:
             settings.TokenDailyRateLimitSuccessCount,
           TokenDailyRateLimitGroup: settings.TokenDailyRateLimitGroup,
-        }}
-      />
-    ),
-  },
-  {
-    id: 'sensitive-words',
-    titleKey: 'Sensitive Words',
-    build: (settings: SecuritySettings) => (
-      <SensitiveWordsSection
-        defaultValues={{
-          CheckSensitiveEnabled: settings.CheckSensitiveEnabled,
-          CheckSensitiveOnPromptEnabled: settings.CheckSensitiveOnPromptEnabled,
-          SensitiveWords: settings.SensitiveWords,
         }}
       />
     ),

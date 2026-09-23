@@ -5,12 +5,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBillingSessionDoesNotTrustChargeAboveTrustThreshold(t *testing.T) {
-	trustQuota := common.GetTrustQuota()
+	trustQuota := int(operation_setting.GetQuotaSetting().TrustQuotaUSD * common.QuotaPerUnit)
 	info := &relaycommon.RelayInfo{
 		UserId:         1,
 		UserQuota:      trustQuota * 10,

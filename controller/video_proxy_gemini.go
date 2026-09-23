@@ -29,6 +29,9 @@ func getGeminiVideoResult(channel *model.Channel, task *model.Task, apiKey strin
 	if url := extractGeminiVideoURLFromTaskData(task); url != "" {
 		return &geminiVideoResult{URL: ensureAPIKey(url, apiKey)}, nil
 	}
+	if result := extractGeminiVideoBase64FromPayload(task.Data); result != nil {
+		return result, nil
+	}
 
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
@@ -45,10 +48,7 @@ func getGeminiVideoResult(channel *model.Channel, task *model.Task, apiKey strin
 	}
 
 	proxy := channel.GetSetting().Proxy
-	resp, err := adaptor.FetchTask(baseURL, apiKey, map[string]any{
-		"task_id": task.GetUpstreamTaskID(),
-		"action":  task.Action,
-	}, proxy)
+	resp, err := adaptor.FetchTask(baseURL, apiKey, task, proxy)
 	if err != nil {
 		return nil, fmt.Errorf("fetch task failed: %w", err)
 	}
@@ -60,7 +60,7 @@ func getGeminiVideoResult(channel *model.Channel, task *model.Task, apiKey strin
 	}
 
 	// Try remote URL from parsed result
-	taskInfo, parseErr := adaptor.ParseTaskResult(body)
+	taskInfo, parseErr := adaptor.ParseTaskResult(task, resp, body)
 	if parseErr == nil && taskInfo != nil && taskInfo.RemoteUrl != "" {
 		return &geminiVideoResult{URL: ensureAPIKey(taskInfo.RemoteUrl, apiKey)}, nil
 	}
@@ -228,10 +228,7 @@ func getVertexVideoURL(channel *model.Channel, task *model.Task) (string, error)
 		return "", fmt.Errorf("vertex key not available for task")
 	}
 
-	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
-		"task_id": task.GetUpstreamTaskID(),
-		"action":  task.Action,
-	}, channel.GetSetting().Proxy)
+	resp, err := adaptor.FetchTask(baseURL, key, task, channel.GetSetting().Proxy)
 	if err != nil {
 		return "", fmt.Errorf("fetch task failed: %w", err)
 	}
@@ -242,7 +239,7 @@ func getVertexVideoURL(channel *model.Channel, task *model.Task) (string, error)
 		return "", fmt.Errorf("read task response failed: %w", err)
 	}
 
-	taskInfo, parseErr := adaptor.ParseTaskResult(body)
+	taskInfo, parseErr := adaptor.ParseTaskResult(task, resp, body)
 	if parseErr == nil && taskInfo != nil && strings.TrimSpace(taskInfo.Url) != "" {
 		return taskInfo.Url, nil
 	}
