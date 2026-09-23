@@ -609,3 +609,19 @@ API 令牌创建和编辑不再把可用额度限制为 `2147483647`。管理员
 `controller` 的并发删除测试和 `relay/channel` 的 HTTP/2 GOAWAY 测试在全量运行时
 偶发失败，两项单独重跑均通过。数据库变更尚未完成 SQLite、MySQL、PostgreSQL
 三库实机矩阵验证，不据此声明数据库兼容性已验证。
+
+构建与发布：
+
+- 合并提交 `8703f5d2c` 已推送到 fork 的 `main`。
+- Xuancat 前端在项目目录重建并分别嵌入 Windows amd64、Linux amd64 程序；
+  本机 `C:\new-api` 与 NekoMetal `/opt/new-api` 已部署、重启，程序哈希与构建产物
+  一致，`/api/status` 和首页均返回 HTTP 200。
+- 普通前端重建并嵌入 Linux amd64 程序；mumlTianli 上的
+  `/opt/new-api-mmw`、`/opt/new-api-mmwpro` 已部署、重启，两套程序哈希一致，
+  各自的 `/api/status` 和首页均返回 HTTP 200。
+- Desktop 项目保留原有未提交改动并升级至 `1.1.17`，提交 `1123fc4` 已推送。
+  将项目复制到 R 盘构建，仅使用现有 classic 产物，未重新编译 classic；
+  Win64 NSIS 安装包与 arm64 APK 已生成，APK 的 v2/v3 签名验证通过，且仅将
+  `.exe` 与 `.apk` 复制到 OneDrive 项目的 `dist` 文件夹。Desktop 的 13 项测试通过。
+- NekoMetal 与 mumlTianli 的部署上传临时文件在安装时已移走；本机的
+  `C:\new-api\new-api.exe.pre-20260923` 因自动审批拒绝删除而暂时保留，需另行清理。
