@@ -670,3 +670,14 @@ mumlTianli 的两个普通版首页哈希一致。前端产物与 Desktop 项目
 验证：网关 `go test ./service ./controller ./relay/... ./middleware -count=1` 通过；
 两个配套项目各自 `go test ./...` 通过。回归覆盖元数据后错误、空完成、截断、
 真实 SSE 错误和请求取消。前端与 Desktop 没有变化，复用既有前端产物。
+
+发布确认：网关修复提交 `2c006f13c` 已推送 main。本机 `C:\new-api`、
+NekoMetal `/opt/new-api` 和 Tianli `/opt/new-api-mmw`、`/opt/new-api-mmwpro`
+均已更新并重启，四套 `/api/status` 返回成功，首页哈希与更新前一致。
+Aida `C:\AsServer`、Tianli `/opt/geminienterprise2api` 与
+`/opt/geminienterprise2apiMmw` 已部署对应修复程序并重启，三个健康检查通过。
+七个部署程序均核对 SHA256 与本次构建产物一致。
+
+构建仅包含已提交的网关源码，保留并排除原有未提交的
+`model/model_pricing_conversion.go` 改动。前端没有重建。
+部署验证后删除本次临时构建目录和源码归档，上传文件已安装移走，没有创建程序备份。
