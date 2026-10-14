@@ -647,3 +647,9 @@ mumlTianli 的两个服务使用普通前端。Desktop 项目的当前路径为
 `D:\Library\Projects\new-api-desktop`，本次不修改或构建 Desktop 项目。
 
 验证：`go test ./service ./model ./dto ./middleware ./controller -count=1` 通过。
+`go test ./relay/... ./router/... -count=1` 通过。
+
+发布：本次使用提交源码的独立构建副本，编译 Xuancat Windows/Linux amd64 与
+普通版 Linux amd64 程序。四个服务已替换程序并重启，`/api/status` 和首页均为
+HTTP 200，目标程序哈希与构建产物一致；本机与 NekoMetal 首页哈希一致，
+mumlTianli 的两个普通版首页哈希一致。前端产物与 Desktop 项目均未重新构建。
