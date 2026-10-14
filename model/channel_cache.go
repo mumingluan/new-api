@@ -129,10 +129,10 @@ func GetRandomSatisfiedChannel(
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels, _ := filterCandidateIDs(group2model2channels[group][model], model, filters)
+	channels, emptiedBy := filterCandidateIDs(group2model2channels[group][model], model, filters)
 
 	// If no channels found, try to find channels with the normalized model name.
-	if len(channels) == 0 {
+	if len(channels) == 0 && emptiedBy != dto.FilterRetryExclusion {
 		normalizedModel := ratio_setting.RoutingMatchModelName(model)
 		channels, _ = filterCandidateIDs(group2model2channels[group][normalizedModel], model, filters)
 	}

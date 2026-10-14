@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -126,4 +127,79 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	assert.Equal(t, 2102, second.Id)
 	assert.Equal(t, "default", selectedGroup)
 	assert.Equal(t, "default", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+}
+
+func TestChannelRetryRoundsVisitEveryCandidateInPriorityOrder(t *testing.T) {
+	for _, filterSecondChannel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("filter=%t", filterSecondChannel), func(t *testing.T) {
+			db := setupChannelSelectAutoGroupsTest(t)
+			const modelName = "retry-round-model"
+			for _, id := range []int{2101, 2102, 2103, 2104} {
+				createChannelSelectAutoGroupsChannel(t, db, id, "default", modelName)
+				priority := int64(20)
+				if id == 2103 {
+					priority = 10
+				}
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", id).Update("priority", priority).Error)
+				require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", id).Update("priority", priority).Error)
+			}
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 2104).Update("status", common.ChannelStatusManuallyDisabled).Error)
+			require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 2104).Update("enabled", false).Error)
+			model.InitChannelCache()
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			if filterSecondChannel {
+				GetChannelConstraints(ctx).AddFilter(dto.ChannelFilter{
+					Kind: dto.FilterRetryExclusion, ExcludedChannelIDs: []int{2102},
+				})
+			}
+			param := &RetryParam{Ctx: ctx, TokenGroup: "default", ModelName: modelName, Retry: common.GetPointer(0)}
+			roundSize := 3
+			if filterSecondChannel {
+				roundSize = 2
+			}
+			for range 3 {
+				var selected []int
+				for i := range roundSize {
+					channel, group, err := CacheGetRandomSatisfiedChannel(param)
+					require.NoError(t, err)
+					require.NotNil(t, channel)
+					assert.Equal(t, "default", group)
+					if i == roundSize-1 {
+						assert.Equal(t, 2103, channel.Id, "lower priority must wait until all higher candidates are tried")
+					} else {
+						assert.Contains(t, []int{2101, 2102}, channel.Id)
+					}
+					selected = append(selected, channel.Id)
+					AppendUsedChannel(ctx, channel.Id)
+					param.IncreaseRetry()
+				}
+				if filterSecondChannel {
+					assert.Equal(t, []int{2101, 2103}, selected)
+				} else {
+					assert.ElementsMatch(t, []int{2101, 2102, 2103}, selected)
+				}
+			}
+			otherCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			otherParam := &RetryParam{Ctx: otherCtx, TokenGroup: "default", ModelName: modelName}
+			channel, _, err := CacheGetRandomSatisfiedChannel(otherParam)
+			require.NoError(t, err)
+			require.NotNil(t, channel)
+			assert.EqualValues(t, 20, channel.GetPriority(), "another request must start with the highest priority")
+		})
+	}
+}
+
+func TestChannelRetryRoundIncludesInitiallySelectedChannel(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	const modelName = "affinity-retry-round-model"
+	createChannelSelectAutoGroupsChannel(t, db, 2101, "default", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 2102, "default", modelName)
+	model.InitChannelCache()
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	AppendUsedChannel(ctx, 2101)
+	param := &RetryParam{Ctx: ctx, TokenGroup: "default", ModelName: modelName, Retry: common.GetPointer(1)}
+	channel, _, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	assert.Equal(t, 2102, channel.Id, "a failed affinity-selected channel must wait for the next round")
 }

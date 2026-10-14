@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,6 +11,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRetryExclusionPreservesExactModelRoutingInBothCachePaths(t *testing.T) {
+	truncateTables(t)
+	previousCache := common.MemoryCacheEnabled
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousCache })
+	priority := int64(20)
+	weight := uint(100)
+	const exactModel = "qwen3-max@thinking:on"
+	for i, name := range []string{exactModel, "qwen3-max"} {
+		channel := Channel{
+			Id: 910001 + i, Type: constant.ChannelTypeOpenAI,
+			Status: common.ChannelStatusEnabled, Name: name, Key: "test-key",
+			Models: name, Group: "default", Priority: &priority, Weight: &weight,
+		}
+		require.NoError(t, channel.Insert())
+	}
+	common.MemoryCacheEnabled = true
+	InitChannelCache()
+	for _, cache := range []bool{true, false} {
+		t.Run(fmt.Sprintf("cache=%t", cache), func(t *testing.T) {
+			common.MemoryCacheEnabled = cache
+			selected, err := GetRandomSatisfiedChannel("default", exactModel, 0, nil)
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			assert.Equal(t, 910001, selected.Id)
+			selected, err = GetRandomSatisfiedChannel("default", exactModel, 0, []dto.ChannelFilter{
+				{Kind: dto.FilterRetryExclusion, ExcludedChannelIDs: []int{910001}},
+			})
+			require.NoError(t, err)
+			assert.Nil(t, selected, "exhausting the exact-model pool must start a new round, not widen routing to its normalized name")
+		})
+	}
+}
 
 func TestFilterCandidateIDs(t *testing.T) {
 	alphaSetting := `{"task_plugin_key":"alpha"}`
