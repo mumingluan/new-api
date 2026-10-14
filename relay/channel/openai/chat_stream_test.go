@@ -80,3 +80,22 @@ func TestOaiStreamHandlerStillRejectsEmptyStream(t *testing.T) {
 	require.NotNil(t, apiErr)
 	assert.Equal(t, types.ErrorCodeEmptyResponse, apiErr.GetErrorCode())
 }
+
+func TestOaiStreamHandlerPreservesExplicitUpstreamError(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	for _, output := range []string{"", "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		body := output + "data: {\"error\":{\"message\":\"upstream quota exhausted\",\"code\":429,\"type\":\"api_error\"}}\n\ndata: [DONE]\n\n"
+		response := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}
+		info := &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "test"}}
+		usage, apiErr := OaiStreamHandler(c, info, response)
+		assert.Nil(t, usage)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, 429, apiErr.StatusCode)
+		assert.Equal(t, "upstream quota exhausted", apiErr.ToOpenAIError().Message)
+		assert.Equal(t, output != "", types.IsSkipRetryError(apiErr))
+	}
+}

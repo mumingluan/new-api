@@ -164,6 +164,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.LastError = nil
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		if requestErr := c.Request.Context().Err(); requestErr != nil {
+			newAPIError = types.NewErrorWithStatusCode(requestErr, types.ErrorCode("request_canceled"), 499, types.ErrOptionWithSkipRetry())
+			break
+		}
 		relayInfo.StreamStatus = nil
 		relayInfo.PerformanceBusinessRejection = false
 		relayInfo.PerformanceOutputTokens = 0
@@ -213,6 +217,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
+		if requestErr := c.Request.Context().Err(); requestErr != nil {
+			newAPIError = types.NewErrorWithStatusCode(requestErr, types.ErrorCode("request_canceled"), 499, types.ErrOptionWithSkipRetry())
+		} else if newAPIError.GetErrorCode() == types.ErrorCodeEmptyResponse && relayInfo.StreamStatus != nil && relayInfo.StreamStatus.EndReason == relaycommon.StreamEndReasonTimeout {
+			newAPIError = types.NewErrorWithStatusCode(fmt.Errorf("upstream stream timed out before semantic output"), types.ErrorCode("upstream_stream_timeout"), http.StatusGatewayTimeout)
+		}
 		relayInfo.LastError = newAPIError
 
 		decision := service.DecideRelayRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())

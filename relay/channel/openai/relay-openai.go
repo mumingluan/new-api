@@ -132,6 +132,14 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if upstreamErr := service.ParseUpstreamError(data); upstreamErr != nil {
+			if streamCommitted {
+				upstreamErr = types.WithOpenAIError(upstreamErr.ToOpenAIError(), upstreamErr.StatusCode, types.ErrOptionWithSkipRetry())
+			}
+			streamErr = upstreamErr
+			sr.Stop(upstreamErr)
+			return
+		}
 		var chunk dto.ChatCompletionsStreamResponse
 		if info.RelayMode == relayconstant.RelayModeCompletions {
 			var completionChunk dto.CompletionsStreamResponse

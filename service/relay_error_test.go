@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,40 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestCanceledRequestNeverRetriesChannelOrUpstreamErrors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, apiErr := range []*types.NewAPIError{
+		types.NewError(errors.New("no key"), types.ErrorCodeChannelNoAvailableKey),
+		types.NewOpenAIError(errors.New("no semantic output"), types.ErrorCodeEmptyResponse, 500),
+	} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
+		decision := DecideRelayRetry(c, apiErr, 15)
+		assert.Equal(t, PolicyDecision{Action: "stop", Reason: "request_canceled", Source: "client"}, decision)
+	}
+}
+
+func TestParseUpstreamErrorPreservesStreamErrorEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		body    string
+		status  int
+		message string
+	}{
+		{`{"error":{"code":429,"message":"quota exhausted","status":"RESOURCE_EXHAUSTED"}}`, 429, "quota exhausted"},
+		{`{"error":{"code":"400","message":"policy rejected","type":"api_error"}}`, 400, "policy rejected"},
+		{`{"error":{"message":"upstream connection failed","type":"api_error"}}`, 502, "upstream connection failed"},
+	} {
+		apiErr := ParseUpstreamError(tc.body)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, tc.status, apiErr.StatusCode)
+		assert.Equal(t, tc.message, apiErr.ToOpenAIError().Message)
+		assert.NotEqual(t, types.ErrorCodeEmptyResponse, apiErr.GetErrorCode())
+	}
+	assert.Nil(t, ParseUpstreamError(`{"choices":[],"usage":{"total_tokens":10}}`))
+	assert.Nil(t, ParseUpstreamError(`{"error":null,"choices":[]}`))
+}
 
 func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 	err := types.NewError(errors.New("channel failed"), types.ErrorCodeChannelNoAvailableKey)

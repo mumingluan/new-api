@@ -654,3 +654,19 @@ mumlTianli 的两个服务使用普通前端。Desktop 项目的当前路径为
 HTTP 200，目标程序哈希与构建产物一致；本机与 NekoMetal 首页哈希一致，
 mumlTianli 的两个普通版首页哈希一致。前端产物与 Desktop 项目均未重新构建。
 部署验证后已清理本次临时源码、程序和归档文件，以及此前遗留的临时构建目录。
+
+### 27. 2026-10-15 保留流式上游错误并停止取消后的重试
+
+- OpenAI 与 Gemini 流式解析识别顶层 error，保留上游错误信息和有效 HTTP 错误码；
+  已输出内容后不再跨渠道重试，避免拼接不同回答。Gemini 非流式响应同样识别错误体。
+- 客户端取消后停止渠道重试，记录 request_canceled / 499；取消请求不触发自动禁用渠道。
+  输出前流式超时记为 upstream_stream_timeout / 504，不再掩盖为空回。
+- 错误日志补充流结束原因和收到的响应数量，便于区分取消、超时、截断和真实空回。
+- 配套修复本机 Library 项目：geminienterprise2api 在有内容前保留 JSON 错误状态，
+  识别上游 error 和截断 JSON，空结果返回 502；aida-server 缓冲输出前的元数据，
+  上游失败时返回实际 JSON 错误，映射 gRPC Unavailable/DeadlineExceeded/Canceled。
+  两个项目目录没有 Git 仓库，配套源码修复保存在原项目目录。
+
+验证：网关 `go test ./service ./controller ./relay/... ./middleware -count=1` 通过；
+两个配套项目各自 `go test ./...` 通过。回归覆盖元数据后错误、空完成、截断、
+真实 SSE 错误和请求取消。前端与 Desktop 没有变化，复用既有前端产物。

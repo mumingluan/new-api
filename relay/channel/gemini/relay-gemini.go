@@ -252,8 +252,17 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var accumulatedUsageMetadata *dto.GeminiUsageMetadata
 	responseText := strings.Builder{}
 	var scanErr error
+	var upstreamAPIError *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if upstreamErr := service.ParseUpstreamError(data); upstreamErr != nil {
+			if responseText.Len() > 0 || imageCount > 0 {
+				upstreamErr = types.WithOpenAIError(upstreamErr.ToOpenAIError(), upstreamErr.StatusCode, types.ErrOptionWithSkipRetry())
+			}
+			upstreamAPIError = upstreamErr
+			sr.Stop(upstreamErr)
+			return
+		}
 		var geminiResponse dto.GeminiChatResponse
 		if err := common.UnmarshalJsonStr(data, &geminiResponse); err != nil {
 			scanErr = err
@@ -315,6 +324,9 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			sr.Stop(streamErr)
 		}
 	})
+	if upstreamAPIError != nil {
+		return nil, upstreamAPIError
+	}
 	if scanErr != nil {
 		return nil, types.NewOpenAIError(scanErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -512,6 +524,9 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	service.CloseResponseBodyGracefully(resp)
+	if upstreamErr := service.ParseUpstreamError(string(responseBody)); upstreamErr != nil {
+		return nil, upstreamErr
+	}
 	logger.LogDebug(c, "Gemini response body: %s", responseBody)
 	var geminiResponse dto.GeminiChatResponse
 	err = common.Unmarshal(responseBody, &geminiResponse)

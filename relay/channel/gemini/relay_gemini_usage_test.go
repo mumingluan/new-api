@@ -57,6 +57,23 @@ func TestStreamResponseGeminiChat2OpenAIAttachesUsageMetadata(t *testing.T) {
 	require.Nil(t, withoutUsage.Usage)
 }
 
+func TestGeminiStreamErrorEnvelopeIsNotAnEmptyResponse(t *testing.T) {
+	previousTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = previousTimeout })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	body := "data: {\"error\":{\"code\":403,\"message\":\"upstream scope missing\",\"status\":\"PERMISSION_DENIED\"}}\n\n"
+	response := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}
+	info := &relaycommon.RelayInfo{IsStream: true, RelayFormat: types.RelayFormatOpenAI, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gemini-test"}}
+	usage, apiErr := GeminiChatStreamHandler(c, info, response)
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.Equal(t, 403, apiErr.StatusCode)
+	require.Equal(t, "upstream scope missing", apiErr.ToOpenAIError().Message)
+	require.NotEqual(t, types.ErrorCodeEmptyResponse, apiErr.GetErrorCode())
+}
+
 func TestGeminiChatStreamHandlerClaudeFirstFrameUsesUpstreamUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
